@@ -220,3 +220,86 @@ class TestValidateLocks:
 
     def test_empty_locks_no_errors(self):
         assert validate_locks([], team_size=5) == []
+
+
+# ---------------------------------------------------------------------------
+# Bug-fix regression tests
+# ---------------------------------------------------------------------------
+
+class TestInputValidation:
+    def test_team_size_zero_raises(self, empty_history):
+        """FIX B7"""
+        with pytest.raises(ValueError, match="team_size"):
+            form_teams(["A", "B", "C"], 0, empty_history)
+
+    def test_team_size_negative_raises(self, empty_history):
+        with pytest.raises(ValueError, match="team_size"):
+            form_teams(["A", "B", "C"], -1, empty_history)
+
+    def test_duplicate_students_raises(self, empty_history):
+        """FIX B10"""
+        with pytest.raises(ValueError, match="duplicate"):
+            form_teams(["A", "B", "A"], 2, empty_history)
+
+
+class TestLocksSatisfied:
+    def test_together_lock_satisfied_with_history(self, students_26):
+        """FIX B3: together locks must hold with history across many seeds."""
+        from tests.algorithm.conftest import build_history_from_teams
+        history = {}
+        for i in range(3):
+            r = form_teams(students_26, 4, history, seed=i)
+            history = build_history_from_teams(r.teams, days_ago=30*(3-i), existing=history)
+        for seed in range(10):
+            locks = [Lock("A", "B", "together")]
+            result = form_teams(students_26, 4, history, locks=locks, seed=seed, time_limit=0.5)
+            a_team = next(t for t in result.teams if "A" in t)
+            assert "B" in a_team, f"Together lock broken at seed {seed}"
+
+    def test_unsatisfied_locks_field_exists(self, empty_history):
+        """FIX B13: FormationResult must have unsatisfied_locks field."""
+        result = form_teams(["A", "B", "C"], 3, empty_history)
+        assert hasattr(result, "unsatisfied_locks")
+        assert isinstance(result.unsatisfied_locks, list)
+
+
+class TestValidateLocksExtended:
+    def test_self_lock_is_error(self):
+        """FIX B6"""
+        errors = validate_locks([Lock("A", "A", "together")], team_size=4)
+        assert len(errors) > 0
+
+    def test_contradiction_is_error(self):
+        """FIX B6"""
+        locks = [Lock("A", "B", "together"), Lock("A", "B", "apart")]
+        errors = validate_locks(locks, team_size=4)
+        assert len(errors) > 0
+
+    def test_apart_when_single_team_is_error(self):
+        """FIX B6"""
+        errors = validate_locks([Lock("A", "B", "apart")], team_size=10, n_students=5)
+        assert len(errors) > 0
+
+    def test_invalid_constraint_type_raises(self):
+        """FIX B13"""
+        with pytest.raises(ValueError):
+            Lock("A", "B", "sideways")
+
+
+class TestAbsorbRemainder:
+    def test_absorb_distributes_to_different_teams(self, empty_history):
+        """FIX B5: 14 students, team_size 6 → r=2 < half=3 → absorb → two teams of 7."""
+        students = [f"s{i}" for i in range(14)]
+        result = form_teams(students, 6, empty_history, seed=42)
+        sizes = sorted(len(t) for t in result.teams)
+        assert sizes == [7, 7], f"Expected [7,7], got {sizes}"
+
+    def test_absorb_no_team_gets_two_extras(self, empty_history):
+        """FIX B5: no single team should receive more than one extra."""
+        # 11 students, team_size 4: r=3 > half=2 → new small team (not absorb)
+        # 9 students, team_size 4: r=1 → absorb → two teams of 4, one of 5
+        students = [f"s{i}" for i in range(9)]
+        result = form_teams(students, 4, empty_history, seed=0)
+        sizes = sorted(len(t) for t in result.teams)
+        assert sum(sizes) == 9
+        assert max(sizes) <= 5  # no team grew by more than 1

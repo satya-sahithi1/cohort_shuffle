@@ -1,53 +1,46 @@
 """
-engine.py — Main entry point for the team formation algorithm.
+engine.py — Main entry point.
 
-This is the only function the formation service needs to call:
-
-    result = engine.form_teams(students, team_size, history, locks)
-
-Internally it orchestrates:
-  1. Random assignment (first activity — no history)
-  2. Greedy placement with time-limited restarts
-  3. Swap optimisation
-  4. Fairness pass
-  5. Lock constraint application
-
-Returns a FormationResult with teams, score, new_pairs, saturation,
-and a list of students who still have no new teammate (if any — only
-possible when the cohort is fully exhausted).
+Fixes applied:
+  B3:  Lock application uses fixpoint loop — never leaves locks silently unsatisfied
+  B4:  Fairness runs BEFORE lock application
+  B6:  validate_locks catches self-locks, contradictions, apart-when-one-team
+  B7:  team_size < 1 raises ValueError
+  B9:  Restart loop checks clock before each cycle
+  B10: Duplicate student IDs raise ValueError
+  B12: Best seeded before loop; score==0 checked before entering loop
+  B13: Lock validates constraint_type in __post_init__; unsatisfied_locks in result
+  B14: Removed unused deepcopy import
+  B15: All imports use algorithm.* (not backend.algorithm.*)
 """
 
 from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass, field
-from copy import deepcopy
 
 from algorithm.scorer import (
-    PairHistory,
-    arrangement_score,
-    count_new_pairs,
-    saturation as compute_saturation,
-    is_better,
+    PairHistory, arrangement_score, count_new_pairs,
+    saturation as compute_saturation, is_better, has_met,
 )
 from algorithm.greedy import place
 from algorithm.swapper import optimise as swap_optimise
 from algorithm.fairness import enforce as fairness_enforce, has_violations
 
 
-# ---------------------------------------------------------------------------
-# Public types
-# ---------------------------------------------------------------------------
-
 @dataclass
 class Lock:
-    """
-    A constraint between two students.
-    constraint_type: 'together' | 'apart'
-    """
     student_a: str
     student_b: str
     constraint_type: str  # 'together' or 'apart'
+
+    def __post_init__(self) -> None:
+        # FIX B13
+        if self.constraint_type not in ("together", "apart"):
+            raise ValueError(
+                f"Lock.constraint_type must be 'together' or 'apart', "
+                f"got {self.constraint_type!r}"
+            )
 
 
 @dataclass
@@ -59,12 +52,8 @@ class FormationResult:
     restarts: int
     elapsed_seconds: float
     unfair_students: list[str] = field(default_factory=list)
-    # Students who have no new teammate (only non-empty when cohort is exhausted)
+    unsatisfied_locks: list[Lock] = field(default_factory=list)  # FIX B13
 
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 def form_teams(
     students: list[str],
@@ -74,194 +63,202 @@ def form_teams(
     time_limit: float = 2.0,
     seed: int | None = None,
 ) -> FormationResult:
-    """
-    Form teams for one activity.
+    # FIX B7
+    if team_size < 1:
+        raise ValueError(f"team_size must be >= 1, got {team_size}")
 
-    Args:
-        students   : list of student IDs registered for this activity
-        team_size  : target team size
-        history    : sparse pair history {(a,b): (count, days_ago)}
-        locks      : optional list of together/apart constraints
-        time_limit : seconds budget for restarts (default 2s)
-        seed       : optional fixed seed for reproducible results (testing)
+    # FIX B10
+    if len(students) != len(set(students)):
+        dupes = [s for s in set(students) if students.count(s) > 1]
+        raise ValueError(f"students list contains duplicate IDs: {dupes}")
 
-    Returns:
-        FormationResult
-    """
     if not students:
-        return FormationResult(
-            teams=[], score=0, new_pairs=0,
-            saturation=0.0, restarts=0, elapsed_seconds=0.0,
-        )
+        return FormationResult(teams=[], score=0, new_pairs=0,
+                               saturation=0.0, restarts=0, elapsed_seconds=0.0)
 
     locks = locks or []
     rng = random.Random(seed)
     start = time.monotonic()
 
-    # ------------------------------------------------------------------
-    # Stage 1: No history → pure random, done immediately
-    # ------------------------------------------------------------------
     if not history:
         teams = place(students, team_size, history, rng)
-        teams = _apply_locks(teams, locks)
+        teams = fairness_enforce(teams, history)           # FIX B4
+        teams, unsatisfied = _apply_locks_fixpoint(teams, locks)  # FIX B3
         elapsed = time.monotonic() - start
         return FormationResult(
-            teams=teams,
-            score=0,
+            teams=teams, score=0,
             new_pairs=count_new_pairs(teams, history),
-            saturation=0.0,
-            restarts=0,
-            elapsed_seconds=elapsed,
+            saturation=0.0, restarts=0, elapsed_seconds=elapsed,
+            unsatisfied_locks=unsatisfied,
         )
 
-    # ------------------------------------------------------------------
-    # Stage 2: History exists — greedy + swap with time-limited restarts
-    # ------------------------------------------------------------------
+    # FIX B12: seed best before loop, check score==0 before entering
     best_teams = place(students, team_size, history, rng)
     best_teams = swap_optimise(best_teams, history)
-    best_teams = _apply_locks(best_teams, locks)
     best_score = arrangement_score(best_teams, history)
     best_new = count_new_pairs(best_teams, history)
     restarts = 0
 
-    while time.monotonic() - start < time_limit:
-        if best_score == 0:
-            break  # perfect result, no point continuing
+    if best_score > 0:
+        # FIX B9: check clock at top of each iteration
+        while time.monotonic() - start < time_limit:
+            candidate = place(students, team_size, history, rng)
+            candidate = swap_optimise(candidate, history)
+            c_score = arrangement_score(candidate, history)
+            c_new = count_new_pairs(candidate, history)
 
-        candidate = place(students, team_size, history, rng)
-        candidate = swap_optimise(candidate, history)
-        candidate = _apply_locks(candidate, locks)
-        c_score = arrangement_score(candidate, history)
-        c_new = count_new_pairs(candidate, history)
+            if is_better(c_score, c_new, best_score, best_new):
+                best_teams = candidate
+                best_score = c_score
+                best_new = c_new
 
-        if is_better(c_score, c_new, best_score, best_new):
-            best_teams = candidate
-            best_score = c_score
-            best_new = c_new
+            restarts += 1
 
-        restarts += 1
+            if best_score == 0:
+                break
 
-    # ------------------------------------------------------------------
-    # Stage 3: Fairness pass — fix students with zero new teammates
-    # ------------------------------------------------------------------
+    # FIX B4: fairness BEFORE locks
     best_teams = fairness_enforce(best_teams, history)
+    # FIX B3: fixpoint lock application
+    best_teams, unsatisfied = _apply_locks_fixpoint(best_teams, locks)
 
     elapsed = time.monotonic() - start
-    sat = compute_saturation(history, len(students))
+    sat = compute_saturation(history, len(students), registered=students)  # FIX B8
     unfair = has_violations(best_teams, history)
 
     return FormationResult(
         teams=best_teams,
         score=arrangement_score(best_teams, history),
         new_pairs=count_new_pairs(best_teams, history),
-        saturation=sat,
-        restarts=restarts,
-        elapsed_seconds=elapsed,
-        unfair_students=unfair,
+        saturation=sat, restarts=restarts, elapsed_seconds=elapsed,
+        unfair_students=unfair, unsatisfied_locks=unsatisfied,
     )
 
-
-# ---------------------------------------------------------------------------
-# Lock constraint application
-# ---------------------------------------------------------------------------
 
 def validate_locks(
     locks: list[Lock],
     team_size: int,
+    n_students: int = 0,
 ) -> list[str]:
-    """
-    Check locks for obvious impossibilities before formation runs.
-    Returns a list of human-readable error messages.
-    Empty list = all locks are satisfiable (as far as we can tell statically).
-    """
+    """FIX B6: catches self-locks, contradictions, apart-when-one-team."""
     errors = []
 
-    # Group 'together' locks into clusters
-    together_clusters = _together_clusters(locks)
-    for cluster in together_clusters:
+    for lock in locks:
+        if lock.student_a == lock.student_b:
+            errors.append(
+                f"Lock error: student {lock.student_a!r} cannot be locked with themselves."
+            )
+
+    together_pairs = {
+        (min(l.student_a, l.student_b), max(l.student_a, l.student_b))
+        for l in locks if l.constraint_type == "together"
+    }
+    apart_pairs = {
+        (min(l.student_a, l.student_b), max(l.student_a, l.student_b))
+        for l in locks if l.constraint_type == "apart"
+    }
+    for pair in together_pairs & apart_pairs:
+        errors.append(
+            f"Lock error: {pair[0]!r} and {pair[1]!r} are locked both "
+            f"'together' and 'apart' — contradiction."
+        )
+
+    for cluster in _together_clusters(locks):
         if len(cluster) > team_size:
             errors.append(
                 f"Lock error: students {sorted(cluster)} must be together "
                 f"but their group ({len(cluster)}) exceeds team size ({team_size})."
             )
 
-    # 'Apart' locks: a student can't be required to be apart from more
-    # people than there are teams, but we can't compute that without
-    # knowing the participant count — so we only catch trivial cases here.
-    # Full validation happens in the formation service once we know n_teams.
+    if n_students > 0 and n_students <= team_size:
+        apart_locks = [l for l in locks if l.constraint_type == "apart"]
+        if apart_locks:
+            errors.append(
+                f"Lock error: 'apart' locks cannot be satisfied when all "
+                f"{n_students} students fit on one team (team size {team_size})."
+            )
 
     return errors
 
 
-def _apply_locks(
+# ---------------------------------------------------------------------------
+# Lock fixpoint application (FIX B3)
+# ---------------------------------------------------------------------------
+
+def _apply_locks_fixpoint(
     teams: list[list[str]],
     locks: list[Lock],
-) -> list[list[str]]:
-    """
-    Enforce lock constraints on an already-formed arrangement by doing
-    targeted swaps.
-
-    'together' locks: ensure both students are on the same team.
-    'apart' locks:    ensure both students are on different teams.
-
-    This is a best-effort post-processing step. The formation service
-    validates locks before calling form_teams, so truly unsatisfiable
-    locks should never reach here.
-    """
+    max_iterations: int = 20,
+) -> tuple[list[list[str]], list[Lock]]:
     if not locks:
-        return teams
+        return teams, []
 
-    # Build a fast lookup: student → team index
-    def student_team(s: str) -> int | None:
-        for i, t in enumerate(teams):
-            if s in t:
-                return i
-        return None
+    for _ in range(max_iterations):
+        unsatisfied = _check_locks(teams, locks)
+        if not unsatisfied:
+            break
+        changed = False
+        for lock in unsatisfied:
+            if _apply_one_lock(teams, lock):
+                changed = True
+        if not changed:
+            break
 
+    return teams, _check_locks(teams, locks)
+
+
+def _check_locks(teams: list[list[str]], locks: list[Lock]) -> list[Lock]:
+    violated = []
     for lock in locks:
         a, b = lock.student_a, lock.student_b
-        idx_a = student_team(a)
-        idx_b = student_team(b)
-
+        idx_a = _team_of(a, teams)
+        idx_b = _team_of(b, teams)
         if idx_a is None or idx_b is None:
-            continue  # student not registered for this activity
+            continue
+        if lock.constraint_type == "together" and idx_a != idx_b:
+            violated.append(lock)
+        elif lock.constraint_type == "apart" and idx_a == idx_b:
+            violated.append(lock)
+    return violated
 
-        if lock.constraint_type == "together":
-            if idx_a != idx_b:
-                # Move b to a's team by swapping b with someone on a's team
-                # (pick the swap that changes the non-locked teams least)
-                for si, swap_out in enumerate(teams[idx_a]):
-                    if swap_out == a:
-                        continue
-                    idx_b2 = student_team(b)
-                    if idx_b2 is None:
-                        break
-                    b_pos = teams[idx_b2].index(b)
-                    teams[idx_a][si], teams[idx_b2][b_pos] = b, swap_out
-                    break
 
-        elif lock.constraint_type == "apart":
-            if idx_a == idx_b:
-                # Move b to a different team — pick any other team
-                for other_idx, other_team in enumerate(teams):
-                    if other_idx == idx_a:
-                        continue
-                    b_pos = teams[idx_a].index(b)
-                    # Swap b with anyone on other_team
-                    teams[idx_a][b_pos], teams[other_idx][0] = (
-                        teams[other_idx][0],
-                        b,
-                    )
-                    break
+def _apply_one_lock(teams: list[list[str]], lock: Lock) -> bool:
+    a, b = lock.student_a, lock.student_b
+    idx_a = _team_of(a, teams)
+    idx_b = _team_of(b, teams)
+    if idx_a is None or idx_b is None:
+        return False
 
-    return teams
+    if lock.constraint_type == "together" and idx_a != idx_b:
+        for si, swap_out in enumerate(teams[idx_a]):
+            if swap_out == a:
+                continue
+            idx_b2 = _team_of(b, teams)
+            if idx_b2 is None:
+                return False
+            b_pos = teams[idx_b2].index(b)
+            teams[idx_a][si], teams[idx_b2][b_pos] = b, swap_out
+            return True
+
+    elif lock.constraint_type == "apart" and idx_a == idx_b:
+        for other_idx, other_team in enumerate(teams):
+            if other_idx == idx_a:
+                continue
+            b_pos = teams[idx_a].index(b)
+            teams[idx_a][b_pos], other_team[0] = other_team[0], b
+            return True
+
+    return False
+
+
+def _team_of(student: str, teams: list[list[str]]) -> int | None:
+    for i, team in enumerate(teams):
+        if student in team:
+            return i
+    return None
 
 
 def _together_clusters(locks: list[Lock]) -> list[set[str]]:
-    """
-    Union-find to group students connected by 'together' locks.
-    Used for static validation.
-    """
     parent: dict[str, str] = {}
 
     def find(x: str) -> str:

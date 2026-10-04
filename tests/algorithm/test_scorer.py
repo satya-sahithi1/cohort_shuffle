@@ -28,17 +28,25 @@ class TestPairScore:
     def test_never_met_is_zero(self, empty_history):
         assert pair_score("A", "B", empty_history) == 0
 
-    def test_met_once_recently(self, empty_history):
+    def test_met_once_is_positive(self):
+        # FIX B1: any met pair must score > 0, even very old
+        h = {pair_key("A", "B"): (1, 9999)}
+        assert pair_score("A", "B", h) > 0
+
+    def test_met_once_recently(self):
         h = {pair_key("A", "B"): (1, 5)}
-        # 1*1000 - 5 = 995
-        assert pair_score("A", "B", h) == 995
+        assert pair_score("A", "B", h) > 0
 
-    def test_met_once_long_ago(self, empty_history):
+    def test_met_once_long_ago(self):
         h = {pair_key("A", "B"): (1, 100)}
-        # 1*1000 - 100 = 900
-        assert pair_score("A", "B", h) == 900
+        assert pair_score("A", "B", h) > 0
 
-    def test_met_twice_is_worse(self, empty_history):
+    def test_met_beats_never_met_regardless_of_age(self):
+        # FIX B1: pair met 4000 days ago still scores higher than never-met
+        h = {pair_key("A", "B"): (1, 4000)}
+        assert pair_score("A", "B", h) > pair_score("A", "C", {})
+
+    def test_met_twice_is_worse(self):
         h_once = {pair_key("A", "B"): (1, 50)}
         h_twice = {pair_key("A", "B"): (2, 50)}
         assert pair_score("A", "B", h_twice) > pair_score("A", "B", h_once)
@@ -54,6 +62,24 @@ class TestPairScore:
     def test_key_order_does_not_matter(self):
         h = {pair_key("Z", "A"): (1, 10)}
         assert pair_score("A", "Z", h) == pair_score("Z", "A", h)
+
+
+class TestHasMet:
+    def test_never_met(self, empty_history):
+        from algorithm.scorer import has_met
+        assert has_met("A", "B", empty_history) is False
+
+    def test_has_met(self):
+        from algorithm.scorer import has_met
+        h = {pair_key("A", "B"): (1, 10)}
+        assert has_met("A", "B", h) is True
+        assert has_met("B", "A", h) is True
+
+    def test_old_pair_still_has_met(self):
+        # FIX B2: has_met must not depend on pair_score > 0
+        from algorithm.scorer import has_met
+        h = {pair_key("A", "B"): (1, 9999)}
+        assert has_met("A", "B", h) is True
 
 
 class TestTeamScore:

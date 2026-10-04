@@ -1,20 +1,9 @@
 """
 cohort_shuffle algorithm package.
-
-Public API — everything the formation service needs:
-
-    from backend.algorithm.engine import form_teams, Lock, FormationResult, validate_locks
-    from backend.algorithm.scorer import PairHistory, saturation
+Imports use algorithm.* (FIX B15).
 """
-
 from algorithm.engine import form_teams, Lock, FormationResult, validate_locks
-from algorithm.scorer import PairHistory, saturation
+from algorithm.scorer import PairHistory, saturation, has_met
 
-__all__ = [
-    "form_teams",
-    "Lock",
-    "FormationResult",
-    "validate_locks",
-    "PairHistory",
-    "saturation",
-]
+__all__ = ["form_teams", "Lock", "FormationResult", "validate_locks",
+           "PairHistory", "saturation", "has_met"]

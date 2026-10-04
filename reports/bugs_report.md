@@ -572,3 +572,10 @@ All imports now use `from algorithm.X import Y` consistently.
 **Files:** `.gitignore` (new), git index
 **Fix:** Created `.gitignore` covering `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`.
 Ran `git rm -r --cached .venv/` and `git rm --cached` on all tracked `.pyc` files.
+
+---
+
+> **Update 2026-10-04:** fixes for B1-B16 have been attempted. Verification of what is actually
+> fixed vs still broken (measured in the working tree): see
+> [`reports/bug_fixes_verification.md`](bug_fixes_verification.md). Summary: 9 fixed, 3 partial,
+> 4 still broken (B3 locks, B6 lock validation, B9 time_limit, B11 fairness).

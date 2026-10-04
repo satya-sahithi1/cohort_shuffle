@@ -1,104 +1,90 @@
 """
 scorer.py — Pair scoring and arrangement evaluation.
 
-Pair history is a sparse dict:
-    key   : (student_a, student_b)  — always sorted so (A,B) == (B,A)
-    value : (overlap_count, days_since_last_together)
+FIX B1: Old formula count*1000 - days_ago goes negative for days_ago > 1000,
+         making old repeats score better than new pairs. New formula clamps
+         recency into [0, RECENCY_SCALE-1] so score is always >= 1 for met pairs.
 
-A missing key means the two students have never worked together → score = 0.
+FIX B2: Added has_met() — single authoritative check for "have these two met?"
+         based on key presence only. Never derived from pair_score > 0.
 
-Scoring formula:
-    score(A, B) = overlap_count * 1000 - days_since_last_together
-
-    Never met          →    0   (best possible)
-    Met once, 30d ago  →  970
-    Met once, 0d ago   → 1000
-    Met twice, 5d ago  → 1995   (worse)
-
-Higher score = worse pairing. Goal: minimise total arrangement score.
-
-Two-key ranking used throughout:
-    primary   : total score     ascending  (lower is better)
-    secondary : new_pairs count descending (more new pairs is better)
+FIX B8: saturation() accepts optional `registered` list and clamps to [0.0, 1.0].
 """
 
 from __future__ import annotations
 from itertools import combinations
 
-# Type alias used across the algorithm package.
-# Maps (student_a, student_b) → (overlap_count, days_since_last_together)
 PairHistory = dict[tuple[str, str], tuple[int, int]]
+
+RECENCY_SCALE = 1000
 
 
 def pair_key(a: str, b: str) -> tuple[str, str]:
-    """Canonical sorted key so (A,B) and (B,A) always resolve to the same entry."""
     return (a, b) if a < b else (b, a)
+
+
+def has_met(a: str, b: str, history: PairHistory) -> bool:
+    """FIX B2: key-presence check only — never use pair_score > 0 for this."""
+    return pair_key(a, b) in history
 
 
 def pair_score(a: str, b: str, history: PairHistory) -> int:
     """
-    Score for placing a and b on the same team.
-    Returns 0 if they have never worked together.
+    FIX B1: always >= 1 for any met pair, 0 for never-met.
+    score = count * RECENCY_SCALE + (RECENCY_SCALE - 1 - min(days, RECENCY_SCALE-1))
     """
     entry = history.get(pair_key(a, b))
     if entry is None:
         return 0
     count, days_ago = entry
-    return count * 1000 - days_ago
+    recency_penalty = RECENCY_SCALE - 1 - min(days_ago, RECENCY_SCALE - 1)
+    return count * RECENCY_SCALE + recency_penalty
 
 
 def team_score(team: list[str], history: PairHistory) -> int:
-    """Sum of pair scores for every pair within one team."""
     return sum(pair_score(a, b, history) for a, b in combinations(team, 2))
 
 
 def marginal_score(student: str, team: list[str], history: PairHistory) -> int:
-    """
-    Extra cost of adding student to an existing team.
-    This is what the greedy step minimises at each placement.
-    """
     return sum(pair_score(student, m, history) for m in team)
 
 
 def arrangement_score(teams: list[list[str]], history: PairHistory) -> int:
-    """Total score across all teams. Lower is better."""
     return sum(team_score(t, history) for t in teams)
 
 
 def count_new_pairs(teams: list[list[str]], history: PairHistory) -> int:
-    """
-    Number of (A, B) pairs across all teams where the two have never
-    worked together. Used as a tie-breaker: more new pairs = better.
-    """
+    """FIX B2: uses has_met for consistency."""
     return sum(
         1
         for team in teams
         for a, b in combinations(team, 2)
-        if history.get(pair_key(a, b)) is None
+        if not has_met(a, b, history)
     )
 
 
-def saturation(history: PairHistory, n_students: int) -> float:
-    """
-    Fraction of all possible pairs that have worked together at least once.
-    0.0 = no history yet.  1.0 = fully exhausted (everyone has met everyone).
-    """
+def saturation(
+    history: PairHistory,
+    n_students: int,
+    registered: list[str] | None = None,
+) -> float:
+    """FIX B8: filter to registered set, clamp to [0.0, 1.0]."""
     if n_students < 2:
         return 0.0
-    total_possible = n_students * (n_students - 1) // 2
-    return len(history) / total_possible
+    if registered is not None:
+        reg_set = set(registered)
+        n = len(reg_set)
+        if n < 2:
+            return 0.0
+        total_possible = n * (n - 1) // 2
+        count = sum(1 for key in history if key[0] in reg_set and key[1] in reg_set)
+    else:
+        total_possible = n_students * (n_students - 1) // 2
+        count = len(history)
+    return min(count / total_possible, 1.0)
 
 
-def is_better(
-    cand_score: int,
-    cand_new: int,
-    best_score: int,
-    best_new: int,
-) -> bool:
-    """
-    Return True if (cand_score, cand_new) is strictly better than
-    (best_score, best_new) under the two-key ranking.
-    """
+def is_better(cand_score: int, cand_new: int, best_score: int, best_new: int) -> bool:
     if cand_score < best_score:
         return True
     if cand_score == best_score and cand_new > best_new:
