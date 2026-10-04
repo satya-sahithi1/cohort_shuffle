@@ -172,7 +172,27 @@ The number of possible team arrangements is astronomically large for any real co
 
 ---
 
-## 9. Multi-Cohort Membership
+## 9. Authentication
+
+Login is handled exclusively via Google OAuth (Sign in with Google). There are no passwords stored in the system.
+
+**Domain restriction (optional, per cohort):**
+- When creating a cohort, the admin may specify one or more allowed email domains (e.g., `students.university.edu`).
+- If a domain is set, only Google accounts whose email matches that domain can join the cohort.
+- If no domain is set, any Google account can register.
+- The admin's own account is not restricted by the domain rule.
+
+**How a student joins a cohort:**
+- Students log in with Google and are shown cohorts they are eligible to join (based on domain match, if any restriction is set).
+- The admin may also invite students directly or share a cohort join link.
+
+**Roles:**
+- Admin accounts are designated explicitly (not derived from email domain).
+- Everyone else who joins a cohort is a student by default.
+
+---
+
+## 10. Multi-Cohort Membership
 
 A student may belong to more than one cohort simultaneously (e.g., enrolled in two courses that each run their own activities). This is supported.
 
@@ -180,7 +200,7 @@ Cohort histories are fully independent. A pairing recorded in cohort A is invisi
 
 ---
 
-## 10. Fallbacks and Exception Handling
+## 11. Fallbacks and Exception Handling
 
 | Situation | Behavior |
 |-----------|----------|
@@ -200,7 +220,7 @@ Cohort histories are fully independent. A pairing recorded in cohort A is invisi
 
 ---
 
-## 11. Assumptions
+## 12. Assumptions
 
 - A formed team counts as "worked together" even if a member does not show up.
 - Students may belong to more than one cohort. History is always cohort-scoped.
