@@ -441,3 +441,134 @@ the remainder tests; and a `days_ago = 4000` fixture asserting `pair_score > 0` 
 7. **B11, B12, B13, B14** — cleanups, can ride along with the above.
 8. **B15 + B16** — settle `algorithm/` vs `backend/algorithm/` and add `.gitignore` before the
    backend scaffold lands, otherwise the first commit of the web layer cements the wrong paths.
+
+---
+
+## 5. Fixes Applied
+
+All 16 bugs fixed. Test suite expanded from 80 to 96 tests — all passing.
+Fix commit covers: `algorithm/scorer.py`, `algorithm/greedy.py`, `algorithm/swapper.py`,
+`algorithm/fairness.py`, `algorithm/engine.py`, `algorithm/__init__.py`, `.gitignore`.
+
+---
+
+### B1 — Scoring formula goes negative
+**File:** `algorithm/scorer.py`
+**Fix:** Replaced `count * 1000 - days_ago` with
+`count * RECENCY_SCALE + (RECENCY_SCALE - 1 - min(days_ago, RECENCY_SCALE - 1))`.
+Any met pair now always scores ≥ 1. Count remains primary, recency is clamped to [0, 999].
+Score == 0 is once again the strict invariant for "never met".
+
+---
+
+### B2 — Two contradictory has-met checks
+**File:** `algorithm/scorer.py`, `algorithm/swapper.py`, `algorithm/fairness.py`
+**Fix:** Added `has_met(a, b, history) -> bool` to `scorer.py` based purely on key
+presence (`pair_key(a, b) in history`). All "have these two met?" checks in `swapper.py`
+(`_conflict_students`) and `fairness.py` (`_find_violations`, `_try_fix`) now call `has_met`.
+No code anywhere derives "has met" from a numeric score.
+
+---
+
+### B3 — Lock application order-dependent, silently incomplete
+**File:** `algorithm/engine.py`
+**Fix:** Replaced single-pass `_apply_locks` with `_apply_locks_fixpoint` — iterates up
+to 20 times until all locks satisfy or no progress is made. `_apply_one_lock` never displaces
+a student who is a participant in another lock. `FormationResult.unsatisfied_locks` reports
+any locks that could not be satisfied after the fixpoint loop.
+
+---
+
+### B4 — Fairness pass runs after locks and can break them
+**File:** `algorithm/engine.py`
+**Fix:** Reordered pipeline: fairness pass now runs **before** lock application.
+Order: greedy → swap → fairness → locks.
+
+---
+
+### B5 — Absorb remainder puts all extras on team 0
+**File:** `algorithm/greedy.py`
+**Fix:** Added a `grew: set[int]` tracker. Each extra student goes to the best-scoring
+team that has not yet received an extra. Extras are distributed one per team, matching the
+spec ("those teams become team_size + 1").
+
+---
+
+### B6 — validate_locks misses most impossible cases
+**File:** `algorithm/engine.py`
+**Fix:** `validate_locks` now catches: self-locks (`student_a == student_b`), contradictions
+(same pair locked both together and apart), and apart-locks when `n_students <= team_size`
+(only one team possible). Takes `n_students` as an optional parameter.
+
+---
+
+### B7 — form_teams crashes on team_size <= 0
+**File:** `algorithm/engine.py`
+**Fix:** Added `if team_size < 1: raise ValueError(...)` at the top of `form_teams`.
+
+---
+
+### B8 — saturation() can exceed 1.0
+**File:** `algorithm/scorer.py`
+**Fix:** `saturation()` now accepts an optional `registered` list. When provided, only
+pairs within that set are counted. Result is clamped to `[0.0, 1.0]`. `engine.py` passes
+`registered=students` when computing saturation for a `FormationResult`.
+
+---
+
+### B9 — Time limit not enforced inside a restart cycle
+**File:** `algorithm/engine.py`
+**Fix:** The `while` loop now checks `time.monotonic() - start < time_limit` at the top
+of each iteration before launching a new `place + swap` cycle. Combined with B12 fix
+(seeding best before the loop), the first cycle's cost is always paid before the check.
+
+---
+
+### B10 — Duplicate student IDs produce nonsense teams
+**File:** `algorithm/engine.py`
+**Fix:** Added `if len(students) != len(set(students)): raise ValueError(...)` with the
+duplicate IDs listed in the message.
+
+---
+
+### B11 — Fairness pass can create new violations
+**File:** `algorithm/fairness.py`
+**Fix:** `enforce()` now iterates in a loop (up to `max_passes=10`). After each round of
+fixes, violations are recomputed. The loop exits early when no violations remain or when
+a full round produces no fixes (exhausted).
+
+---
+
+### B12 — First restart computed twice, restarts undercounts
+**File:** `algorithm/engine.py`
+**Fix:** Best result is seeded once before the loop. The loop checks `best_score == 0`
+before entering (early exit for no-history or perfect first placement). `restarts` now
+correctly counts only the iterations inside the loop.
+
+---
+
+### B13 — Lock accepts invalid constraint_type, skips silently
+**File:** `algorithm/engine.py`
+**Fix:** Added `Lock.__post_init__` that raises `ValueError` if `constraint_type` is not
+`"together"` or `"apart"`. Added `unsatisfied_locks: list[Lock]` field to `FormationResult`
+so callers can detect and log locks that could not be satisfied.
+
+---
+
+### B14 — Unused import
+**File:** `algorithm/engine.py`
+**Fix:** Removed `from copy import deepcopy`.
+
+---
+
+### B15 — Package path / doc mismatch
+**File:** `algorithm/__init__.py`
+**Fix:** Updated docstring and imports to reflect the actual root-level `algorithm/` path.
+All imports now use `from algorithm.X import Y` consistently.
+
+---
+
+### B16 — .venv committed, no .gitignore
+**Files:** `.gitignore` (new), git index
+**Fix:** Created `.gitignore` covering `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`.
+Ran `git rm -r --cached .venv/` and `git rm --cached` on all tracked `.pyc` files.
