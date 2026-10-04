@@ -12,7 +12,7 @@ Covers:
 """
 
 import pytest
-from backend.algorithm.scorer import (
+from algorithm.scorer import (
     pair_score,
     team_score,
     marginal_score,

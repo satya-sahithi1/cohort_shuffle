@@ -11,7 +11,7 @@ Fixtures available to all test files in this folder:
 """
 
 import pytest
-from backend.algorithm.scorer import PairHistory, pair_key
+from algorithm.scorer import PairHistory, pair_key
 
 
 # ---------------------------------------------------------------------------

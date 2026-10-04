@@ -3,8 +3,8 @@ test_swapper.py — Tests for swapper.py
 """
 
 import pytest
-from backend.algorithm.swapper import optimise, _conflict_students
-from backend.algorithm.scorer import pair_key, arrangement_score
+from algorithm.swapper import optimise, _conflict_students
+from algorithm.scorer import pair_key, arrangement_score
 
 
 class TestConflictStudents:
@@ -31,7 +31,7 @@ class TestConflictStudents:
 class TestOptimise:
     def test_no_history_unchanged(self, students_26, empty_history):
         import random
-        from backend.algorithm.greedy import place
+        from algorithm.greedy import place
         rng = random.Random(42)
         teams = place(students_26, 4, empty_history, rng)
         score_before = arrangement_score(teams, empty_history)
@@ -55,7 +55,7 @@ class TestOptimise:
 
     def test_all_students_still_present(self, students_26, small_history):
         import random
-        from backend.algorithm.greedy import place
+        from algorithm.greedy import place
         rng = random.Random(42)
         teams = place(students_26, 5, small_history, rng)
         before = sorted(s for t in teams for s in t)

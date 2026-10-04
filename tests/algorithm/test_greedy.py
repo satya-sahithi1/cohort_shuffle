@@ -4,8 +4,8 @@ test_greedy.py — Tests for greedy.py
 
 import random
 import pytest
-from backend.algorithm.greedy import place
-from backend.algorithm.scorer import pair_key
+from algorithm.greedy import place
+from algorithm.scorer import pair_key
 
 
 RNG = random.Random(42)
@@ -23,12 +23,13 @@ class TestTeamSizes:
         assert all(len(t) == 2 for t in teams)
 
     def test_absorb_remainder(self, empty_history):
-        # 14 students, team size 4 → r=2, absorb → 3 teams (sizes 5,5,4)
-        students = [f"s{i}" for i in range(14)]
+        # 13 students, team size 4 → r=1, always absorb → 3 teams
+        students = [f"s{i}" for i in range(13)]
         teams = place(students, 4, empty_history, fresh_rng())
         sizes = sorted(len(t) for t in teams)
-        assert sum(sizes) == 14
+        assert sum(sizes) == 13
         assert len(teams) == 3
+        assert all(len(t) > 1 for t in teams)  # no solo teams
 
     def test_new_small_team_for_large_remainder(self, empty_history):
         # 15 students, team size 4 → r=3 > 4/2=2 → new small team → 4 teams
