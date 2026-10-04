@@ -1,581 +1,371 @@
 # Cohort Shuffle — Implementation Status & Bugs Report
 
 Date: 2026-10-04
-Commit audited: `d65a5ac` ("score check+greedy+swapper algorithm implementation")
+Findings first written against commit `d65a5ac`; **re-verified in the working tree** after the
+bug-fix pass (uncommitted changes on top of `318f7d1` "bug fixes for engine", 6 algorithm files
+modified, 2 test files extended, `.gitignore` added, `backend/` scaffolded).
 Sources of truth: `implementation_plan.md`, `algorithm_approach1.md`, `problem_final.md`
-Test suite state: 80 passed / 80 (`.venv/bin/python -m pytest -q` → `80 passed in 0.09s`)
+Test suite: **96 passed / 96** (`.venv/bin/python -m pytest -q` → `96 passed`) — was 80 before the fixes.
+Verification method: every bug re-tested by re-running its original reproduction against the current
+code, plus new adversarial probes aimed at the fixes themselves (randomized seeds, boundary values,
+direct calls to the new internal helpers).
 
 ---
 
 ## 1. How much of the plan is actually implemented
 
-### 1.1 Backend web layer: 0%
+### 1.1 Backend web layer: ~5% (scaffold only)
 
-`backend/` exists but is **completely empty**. Nothing from Phase 1, 2, 4 or 5 of
-`implementation_plan.md` exists in any form.
+`backend/` was empty at the time of the first pass. It now contains a Phase 1 scaffold —
+`app/main.py` (FastAPI app, CORS, `/health`), `app/config.py` (pydantic-settings), `app/database.py`
+(async engine, `Base`, `get_db`), `requirements.txt`, `.env.example`, and **empty**
+`app/routers/`, `app/schemas/`, `app/models/`, `app/services/` packages plus an empty `alembic/`
+directory. Nothing functional beyond `/health`.
 
 | Planned artifact | Status |
 |---|---|
-| `backend/app/` (FastAPI server, 20 endpoints in plan §API Endpoints) | missing — 0 of 20 endpoints |
-| `backend/alembic/` + DB schema (9 tables: users, cohorts, cohort_members, activities, activity_locks, registrations, teams, team_members, formation_logs) | missing — 0 of 9 tables |
-| Google OAuth (Authlib) + session cookies | missing |
-| APScheduler deadline/cap triggers | missing |
-| Formation service (`formation_service.run`) incl. idempotency guard | missing |
+| `backend/app/` routers (20 endpoints in plan §API Endpoints) | missing — 0 of 20 endpoints; `routers/` is an empty package |
+| DB schema + migrations (9 tables: users, cohorts, cohort_members, activities, activity_locks, registrations, teams, team_members, formation_logs) | missing — `models/` empty, `alembic/` has no files |
+| Google OAuth + session cookies | missing (`python-jose` JWT is in requirements, no OAuth client — see N2) |
+| APScheduler deadline/cap triggers | missing (not even in `backend/requirements.txt`) |
+| Formation service (`formation_service.run`) incl. idempotency guard | missing (`services/` empty) |
 | Pair-history loader from `team_members` | missing |
 | `formation_logs` writer + saturation ≥ 0.80 flag | missing |
 | `frontend/` (React 18 + Vite, 5 pages) | missing |
 | `docker-compose.yml`, `nginx.conf`, `backend/Dockerfile`, `frontend/Dockerfile` | missing |
-| `backend/requirements.txt` (fastapi, sqlalchemy, alembic, apscheduler, authlib, psycopg) | missing — root `requirements.txt` contains only `pytest`, `pytest-cov` |
+| `backend/requirements.txt` | present but incomplete (missing `apscheduler`, OAuth client) |
 
-### 1.2 Algorithm module: implemented, with real defects
+### 1.2 Algorithm module: implemented, was 16 defects, 4 remain
 
-Lives at `algorithm/` (scorer, greedy, swapper, fairness, engine) = **5 modules, ~760 lines**.
-This corresponds to plan item 10 and 11 (Phase 3). It is the only substantive code in the repo.
+Lives at `algorithm/` (scorer, greedy, swapper, fairness, engine) = 5 modules, ~570 lines after the
+fix pass. This is plan items 10 and 11 (Phase 3) and remains the only substantive code in the repo.
 
 Implemented and working:
-- sparse pair history + canonical `pair_key` (`algorithm/scorer.py:33`)
-- unified score `count * 1000 - days_ago` (`algorithm/scorer.py:47`)
-- two-key ranking `is_better(score ASC, new_pairs DESC)` (`algorithm/scorer.py:92`)
-- randomised greedy placement with overlap-load ordering + jitter (`algorithm/greedy.py:63`)
-- time-limited restart loop with early exit at score 0 (`algorithm/engine.py:127`)
-- swap local search with conflict-student pruning (`algorithm/swapper.py:21`)
-- fairness pass + `unfair_students` reporting (`algorithm/fairness.py:22`)
-- remainder rule incl. `r == 1` special case (`algorithm/greedy.py:47`)
-- static lock validation via union-find clusters (`algorithm/engine.py:168`)
-- 80 unit tests across 5 files + `conftest.py` fixtures
+- sparse pair history + canonical `pair_key` (`algorithm/scorer.py:22`)
+- unified pair score, now clamped so count is strictly primary (`algorithm/scorer.py:31`)
+- single authoritative `has_met()` used by every "have these two met?" check (`algorithm/scorer.py:26`)
+- two-key ranking `is_better(score ASC, new_pairs DESC)` (`algorithm/scorer.py:87`)
+- randomised greedy placement with overlap-load ordering + jitter (`algorithm/greedy.py:41`)
+- time-limited restart loop with early exit at score 0 (`algorithm/engine.py:102`)
+- swap local search with conflict-student pruning (`algorithm/swapper.py:13`)
+- fairness pass to fixpoint + `unfair_students` reporting (`algorithm/fairness.py:14`)
+- remainder rule incl. one-extra-per-team absorb and `r == 1` special case (`algorithm/greedy.py:60`)
+- lock fixpoint application + `unsatisfied_locks` reporting (`algorithm/engine.py:188`)
+- static lock validation via union-find clusters (`algorithm/engine.py:138`)
+- 96 unit tests across 5 files + `conftest.py` fixtures
 
 ### 1.3 Phase-by-phase scorecard (plan items 1–23)
 
 | Phase | Items done | Notes |
 |---|---|---|
-| Phase 1 — Foundation | 0 / 5 | nothing |
+| Phase 1 — Foundation | 0.5 / 5 | item 1 (project scaffold) in progress; auth, schema/migrations, cohort CRUD, login UI all missing |
 | Phase 2 — Activity lifecycle | 0 / 4 | nothing |
-| Phase 3 — Team formation | 2 / 6 (+1 partial) | algorithm + unit tests done; item 14 (lock validation) only exists as a static helper, not wired into any service |
+| Phase 3 — Team formation | 2 / 6 (+1 partial) | algorithm + unit tests done; item 14 (lock validation) exists as a helper only, never called by `form_teams` or any service |
 | Phase 4 — Team views + admin controls | 0 / 5 | nothing |
 | Phase 5 — Polish | 0 / 3 | nothing |
 
-**Overall: ~2.5 of 23 plan items (≈11%). Backend web/API layer: 0%.**
+**Overall: ~2.5 of 23 plan items (≈11%). Backend endpoints: 0 of 20. DB tables: 0 of 9.**
 
-### 1.4 Deviations from the plan that are already baked in
+### 1.4 Deviations from the plan that are baked in
 
-1. `algorithm/` is at repo root; the plan (§Project Layout) requires `backend/algorithm/`, and
-   `algorithm/__init__.py:6` documents `from backend.algorithm.engine import form_teams` — an
-   import path that cannot resolve. `pyproject.toml` packages `algorithm*`, and all tests import
-   `algorithm.*`. Pick one layout before the backend lands, or every backend import will be wrong.
-2. `tests/` is at repo root as planned, but it imports `algorithm.*`, not `backend.algorithm.*` as
-   the plan states.
-3. `docs/` folder from the plan does not exist; the four design docs sit at repo root, and both
+1. `algorithm/` is at repo root; the plan (§Project Layout) requires `backend/algorithm/`.
+   `algorithm/__init__.py:5` now correctly imports `algorithm.*` (B15 fixed in code), but
+   `implementation_plan.md` still describes the `backend/algorithm/` layout and `tests/` importing
+   from it. Pick one before the formation service lands.
+2. `docs/` folder from the plan does not exist; the four design docs sit at the repo root, and both
    `problem.md` and `problem_draft2.md` remain alongside the merged `problem_final.md`.
-4. `algorithm_approach1.md` §Step 3 (escalation ladder: low/medium thresholds, 10/100 restarts) is
-   **not implemented** — the engine uses a flat time limit. This is defensible because the same
-   document's §Scaling #4 endorses the time-limit replacement, but the two sections now contradict
-   each other and one should be deleted.
-5. The numpy / sub-pool fallbacks for >200 students (`algorithm_approach1.md` §Scaling #5) are not
-   implemented and there is no guard or warning for oversized cohorts.
-6. `.venv/` is committed to git: **1,393 of 1,425 tracked files (97.8%)**, plus 12 committed
-   `__pycache__/*.pyc` files, and there is **no `.gitignore`**.
+3. `algorithm_approach1.md` §Step 3 (escalation ladder: low/medium thresholds, 10/100 restarts) is not
+   implemented — the engine uses a flat time limit. Defensible, because the same document's §Scaling #4
+   endorses the time-limit replacement, but the two sections now contradict each other.
+4. The numpy / sub-pool fallbacks for >200 students (§Scaling #5) are not implemented and there is no
+   guard or warning for oversized cohorts.
+5. `backend/requirements.txt` uses `python-jose` for JWT instead of the plan's `authlib` for the
+   Google OAuth flow — a reasonable substitution, but it is an undocumented deviation, and there is
+   still no OAuth client library at all.
 
 ---
 
-## 2. Bugs
+## 2. Bug status scoreboard
 
 Severity: **CRITICAL** = wrong results returned silently to users / admin intent violated ·
 **HIGH** = spec rule broken or crash · **MEDIUM** = wrong metric or resource overrun ·
 **LOW** = correctness-adjacent hygiene.
 
-Every bug below was reproduced against the current code. Line refs are to the audited commit.
+| # | Bug | Severity | Status |
+|---|---|---|---|
+| B1 | `pair_score` goes negative — old repeats beat brand-new pairs | CRITICAL | **FIXED** |
+| B2 | Two contradictory definitions of "has this pair met" | CRITICAL | **FIXED** |
+| B3 | Lock application order-dependent — locks silently unsatisfied | CRITICAL | **STILL BROKEN** |
+| B4 | Fairness pass runs after locks and breaks them | HIGH | **FIXED** |
+| B5 | Remainder absorb puts every leftover student in one team | HIGH | **FIXED** |
+| B6 | `validate_locks` misses most unsatisfiable locks | HIGH | **PARTIAL** |
+| B7 | `form_teams` crashes on `team_size <= 0` | HIGH | **FIXED** |
+| B8 | `saturation()` exceeds 1.0 / counts out-of-cohort pairs | MEDIUM | **FIXED** |
+| B9 | `time_limit` not enforced inside a restart cycle | MEDIUM | **STILL BROKEN** |
+| B10 | Duplicate student IDs put one student on a team twice | MEDIUM | **FIXED** |
+| B11 | Fairness pass creates new violations | LOW | **PARTIAL** |
+| B12 | First restart computed twice, `restarts` undercounts | LOW | **FIXED** |
+| B13 | Lock input validation / silent skips | LOW | **PARTIAL** |
+| B14 | Dead imports | LOW | **PARTIAL** |
+| B15 | `algorithm` vs `backend.algorithm` import paths | LOW | **FIXED (code only)** |
+| B16 | `.venv` + bytecode committed, no `.gitignore` | LOW | **FIXED** |
+| N1 | `.gitignore` does not ignore `.env` (secret key + DB password) | HIGH | **NEW — OPEN** |
+| N2 | Formation-service contract is wider than the algorithm's guarantees | MEDIUM | **NEW — OPEN** |
+| N3 | Dead imports left by the B2 refactor (`swapper.py`) | LOW | **NEW — OPEN** |
+| N4 | Documentation now contradicts the code | LOW | **NEW — OPEN** |
+| N5 | Test gaps still hide every remaining failure | MEDIUM | **NEW — OPEN** |
+
+**Net: 9 fixed, 3 partial, 4 still broken, 5 new open.**
 
 ---
 
-### B1 — CRITICAL — `pair_score` goes negative, so old repeats beat brand-new pairs
+## 3. Bugs that remain broken
 
-`algorithm/scorer.py:47`
+### B3 — CRITICAL — the lock fixpoint loop oscillates instead of converging
 
-```
-score(A, B) = overlap_count * 1000 - days_since_last_together
-```
+`algorithm/engine.py:188-251`
 
-`days_since_last_together` is unbounded, so any pair whose last meeting was more than
-`1000 * count` days ago scores **below 0** — i.e. *better than never having met*. This inverts the
-documented invariant ("never met → 0, best possible", `algorithm/scorer.py:13`, and
-`algorithm_approach1.md` §Scoring Function, which states count is primary and recency is only a
-tiebreaker).
+`_apply_locks_fixpoint` re-checks locks and retries up to 20 iterations, but `_apply_one_lock` still
+resolves a `together` lock by displacing **the first non-`a` member of `a`'s team**
+(`engine.py:233-240`) with no regard for whether that member is itself locked. Two locks that share a
+student therefore ping-pong: satisfying `s8≡s1` evicts `s1`'s other locked partner, and satisfying
+that one evicts `s8`, for all 20 iterations.
 
-Reproduction (`count=1, days_ago=1500`):
-
-```
-pair_score("A","B") -> -500        # met once, long ago
-pair_score("A","C") ->    0        # never met  → should be the best possible score
-```
-
-End-to-end effect, 12 students / team size 3, `s0` has met `s1..s10` once each 4000 days ago and has
-never met `s11`:
+Through the public API (26 students, team size 4, 40 random history pairs, one 3-person `together`
+chain, 200 seeds):
 
 ```
-teams: [['s11','s1','s4'], ['s5','s6','s9'], ['s8','s10','s7'], ['s3','s2','s0']]
-score: -6000     unfair_students: []
+unsatisfied 3-person together chain: 52/200 (26%)      [45% before the fix — reduced, not solved]
+runs ending with non-empty unsatisfied_locks: 82/300
 ```
 
-`s0` was placed with two students it has already worked with (each −2000) while fresh partners were
-available, the arrangement score is negative, and the fairness check reports no violation. A score of
-`0` no longer means "perfect", so `algorithm/engine.py:128` (`if best_score == 0: break`) can also
-exit the restart loop on a merely decent result and skip further improvement.
+Minimal deterministic repro (9 students, team size 3, small history, `seed=0`):
 
-Fix: clamp the recency term so count stays strictly primary, e.g.
-`score = count * RECENCY_SCALE - min(days_ago, RECENCY_SCALE - 1)` with `RECENCY_SCALE = 1000`, or
-return `0` for never-met and `count * SCALE + (SCALE - 1 - min(days, SCALE-1))` for met pairs.
+```
+locks:  s8+s1 together, s1+s2 together
+teams:  [['s8','s1','s5'], ['s4','s7','s6'], ['s2','s0','s3']]
+unsatisfied: [('s1','s2')]     # s1 and s8 stuck together, s2 evicted, fixpoint gave up
+```
+
+Original bug, for reference: locks were applied once in list order with no re-check, violating a
+3-person chain in 27/60 runs and `_apply_locks` directly in 731/3000 randomized trials.
+
+Credit where due: `unsatisfied_locks` is populated in **52 of 52** failing runs, so the result is at
+least honest now. But `problem_final.md` §11 requires the run to abort and notify the admin
+("Formation must never produce two sets of teams"; "Locks cannot be satisfied → admin is told before
+formation runs"), and `FormationResult` is still returned as a success with teams attached. Nothing in
+the algorithm layer raises, and nothing calls `validate_locks` first (see B6).
+
+Fix: choose the displaced member by lock awareness — never evict a student who participates in a
+satisfied `together` lock whose cluster is still inside that team; if no legal eviction exists, give up
+immediately instead of thrashing. Drop `max_iterations` to 2–3 and treat exhaustion as a hard failure.
+Better: seed locked clusters into `greedy.place` as pre-formed blocks instead of post-hoc swapping.
+
+### B6 — HIGH (partial) — two whole classes of unsatisfiable locks are still undetected
+
+`algorithm/engine.py:138-181`
+
+Fixed: self-locks, same-pair `together`+`apart` contradictions, `apart` when everyone fits on one team
+(when `n_students` is passed), and `together` clusters larger than `team_size`.
+
+Still broken — contradiction detection intersects **exact pairs** (`together_pairs & apart_pairs`,
+`engine.py:160`), not clusters, so a contradiction routed through a third student is invisible:
+
+```
+locks: a+b together, b+c together, a+c apart
+validate_locks(locks, team_size=3, n_students=9)  -> []      # MISSED
+validate_locks(locks, team_size=4, n_students=9)  -> []      # MISSED
+```
+
+Unsatisfiable by construction (a, b, c must share a team, yet a and c must be apart). It is only caught
+today by accident, when the "all students fit on one team" rule fires for an unrelated reason.
+Feasibility of `apart` edges is still not modelled at all:
+
+```
+locks: a apart from b,c,d,e,f   (7 students, team_size 3)
+validate_locks(locks, 3, 7)     -> []      # MISSED: a needs a team to itself, min size is 3
+```
+
+And `n_students` defaults to `0`, which silently disables the one-team check:
+
+```
+validate_locks([Lock("a","b","apart")], team_size=4)              -> []    # check skipped
+validate_locks([Lock("a","b","apart")], team_size=4, n_students=4) -> [error]
+```
+
+`form_teams` never calls `validate_locks`, so end-to-end:
+
+```
+form_teams(12 students, locks=[Lock("s0","s0","together")])  -> silently accepted, 0 unsatisfied
+form_teams(12 students, locks=[Lock("s0","s1","together"),
+                               Lock("s0","s1","apart")])    -> no exception, no abort;
+                                                                one of the two silently applied
+```
+
+Original bug, for reference: only "together cluster > team_size" was detected; self-locks,
+contradictions and impossible `apart` locks all returned `[]`.
+
+Fix: build clusters first, then check every `apart` edge against cluster membership; compute
+`n_teams` from the actual placement and test
+`sum(len(c) - 1 for c in clusters_of_a) <= n_teams * (team_size - 1)`; make `n_students` a required
+argument; call `validate_locks` from `form_teams` or enforce it in the formation service with a test.
+
+### B9 — MEDIUM — `time_limit` is still only checked between restarts
+
+The fix moved the clock read to the top of the loop body, which is where it already was. Nothing was
+threaded into `swapper.optimise`, so one cycle still runs to completion and the overrun equals one full
+`place()` + `swap_optimise()`:
+
+```
+N=200, k=5, 10,897 history pairs, time_limit=0.3s -> 0.54s  (1.81x), restarts=2
+N=300, k=6,                  time_limit=0.5s  -> 0.74s  (1.48x), restarts=2
+N=500, k=5,                  time_limit=0.5s  -> 0.21s  (0.41x, exits early at score 0)
+```
+
+The overrun grows with cohort size and history density, so the APScheduler deadline job (plan
+§Scheduler) and any inline cap-hit formation can block well past its budget. Secondary issue unchanged:
+`team_score` is still recomputed for both teams on every candidate swap (`swapper.py:37-43`), so
+`algorithm_approach1.md:157`'s "O(1) per candidate swap" remains false.
+
+Fix: add a `deadline: float | None` parameter to `optimise()`, checked between team pairs; pass
+`start + time_limit` from `form_teams`; cache per-team scores instead of recomputing them.
+
+### B11 — LOW (partial) — fairness pass still creates new violations
+
+`algorithm/fairness.py:14-30`
+
+The fixpoint loop reduced the failure rate from 166/3000 to **36/3000** randomized trials (~1.2%), but
+`_try_fix` still verifies only the violating student and the incoming student
+(`fairness.py:75-82`); the student swapped *out* into the other team is never re-checked, and
+`max_passes=10` silently gives up:
+
+```
+before: [['s5','s9'], ['s1','s4','s7','s6'], ['s8','s3','s2','s0']]
+after : [['s5','s3'], ['s1','s4','s7','s6'], ['s8','s9','s2','s0']]   # s3 now has an all-repeat team
+```
+
+Fix: after an accepted swap, re-evaluate both affected teams and reject the swap if the outgoing
+student gains a violation; or re-run `_find_violations` on the two touched teams before keeping.
 
 ---
 
-### B2 — CRITICAL — two contradictory definitions of "has this pair met"
+## 4. Partial fixes, remaining gaps
 
-The codebase answers that question two different ways:
+### B13 — LOW (partial) — locks naming unregistered students are still skipped silently
 
-| Test | Used in |
+Fixed: `Lock(..., "sideways")` now raises `ValueError` (`engine.py:37-43`) and `FormationResult`
+carries `unsatisfied_locks` (`engine.py:55`). Remaining: `_check_locks` `continue`s when a locked
+student is not in any team (`engine.py:216-217`), so locks referring to non-registered students vanish
+with no trace:
+
+```
+form_teams(["a","b","c","d"], 2, {}, locks=[Lock("a","zz","together")])
+  -> teams=[['b','c'],['d','a']], unsatisfied_locks=0     # lock silently dropped
+```
+
+Either report them separately or reject them up front.
+
+### B14 — LOW (partial) — dead imports remain in `swapper.py`
+
+`deepcopy` was removed from `engine.py`, but `algorithm/swapper.py:10` still imports `pair_score` and
+`pair_key`, neither used after switching to `has_met` (see N3).
+
+### B15 — LOW — code fixed, docs still contradict it
+
+`algorithm/__init__.py:5` now imports `algorithm.engine` and the package resolves as `algorithm`, so the
+code path bug is gone. `implementation_plan.md:48-61, 254-261` still specifies
+`backend/algorithm/` with `tests/` importing `backend.algorithm.*` and
+`def form_teams(...) -> list[list[str]]`, while the code returns a `FormationResult` dataclass. See N4.
+
+---
+
+## 5. New issues found during verification
+
+### N1 — HIGH — `.gitignore` does not ignore `.env`
+
+`.gitignore` covers `.venv/`, `venv/`, `env/`, `__pycache__/`, `.pytest_cache/`, IDE dirs — but **not
+`.env`**. `backend/.env.example:1-2` says "Copy this file to .env … Never commit .env to git", and
+`backend/.env` will hold `SECRET_KEY` and the database password. The scaffold landed during this review
+and `.env` is not excluded. Add `.env` / `*.env.local` while keeping `.env.example` tracked.
+
+### N2 — MEDIUM — the formation-service contract is wider than the algorithm's guarantees
+
+`backend/` is a scaffold only, so nothing has consumed the algorithm yet. Three obligations follow from
+the fixes and are not reflected anywhere in the backend:
+
+- `validate_locks(locks, team_size, n_students)` — the third argument is new and **required** for the
+  `apart` check to run; the service must supply the registered count.
+- `FormationResult.unsatisfied_locks` must be treated as a **failure**: abort the transaction, leave the
+  activity unformed, notify the admin (plan §Formation Flow step 3, spec §11). Nothing in the algorithm
+  layer enforces this.
+- `saturation(history, n, registered=...)` — the service should pass the registered list, otherwise
+  out-of-cohort pairs are counted (now clamped, but wrong).
+- `backend/requirements.txt` is missing `apscheduler` (plan §Scheduler) and any Google OAuth client
+  (`authlib` per the plan's stack; the file has `python-jose` for JWT only).
+
+### N3 — LOW — dead imports left behind by the B2 refactor
+
+`algorithm/swapper.py:10` still imports `pair_score` and `pair_key`; neither is used after the switch to
+`has_met`. The B14 cleanup only touched `engine.py`.
+
+### N4 — LOW — documentation now contradicts the code
+
+`algorithm_approach1.md` still documents the removed formula and will mislead the next reader or agent:
+
+- line 27: `score(A, B) = overlap_count[A][B] * 1000 - days_since_last_together[A][B]`
+- lines 33-37: the entire "Why this works better than `1 / days`" argument rests on the old formula
+- line 39: "Goal: minimize total score" — no mention of the new clamp
+
+`implementation_plan.md:254-261` still declares `def form_teams(...) -> list[list[str]]` while the code
+returns `FormationResult`. The new formula is documented only in the `algorithm/scorer.py` docstring, so
+the two sources disagree. Pick the code as truth and update both `.md` files.
+
+### N5 — MEDIUM — test gaps still hide every remaining failure
+
+96 tests pass and none of them catch B3, B6, B9 or B11:
+
+| Gap | Hides |
 |---|---|
-| `history.get(pair_key(a, b)) is None` | `scorer.py:77` (`count_new_pairs`), `fairness.py:94,109,116,117` |
-| `pair_score(a, b, history) > 0` | `swapper.py:99` (`_conflict_students`), `fairness.py:64` (`_find_violations`) |
+| `test_engine.py:254` uses exactly **one** lock; the only multi-lock engine tests (lines 185, 201) use `empty_history` (stage-1 path, where a single swap always succeeds) | B3's 26% failure |
+| No test asserts `unsatisfied_locks` is **populated** for a genuinely unsatisfiable set — `test_unsatisfied_locks_field_exists` only checks `isinstance(..., list)` | B3, B6 |
+| `test_met_once_recently` / `test_met_once_long_ago` now assert only `> 0`; nothing pins the count-primary invariant (`count=1` max < `count=2` min) | B1 regression |
+| No cluster-level contradiction case; only the same-pair case | B6 |
+| No assertion on `elapsed_seconds` vs `time_limit` (only `>= 0` at `test_engine.py:143`) | B9 |
+| No randomized / multi-seed lock or fairness test | B3, B11 |
 
-With B1 unfixed these disagree for any pair older than `1000 * count` days. A student whose entire
-team consists of long-ago repeats is reported as **fair** (`fairness.py:64` sees score ≤ 0), the swap
-optimiser skips them entirely as "not a conflict student" (`swapper.py:99`), and `count_new_pairs`
-simultaneously counts those same pairs as *not* new. The result is that the two ranking keys used by
-`is_better` describe contradictory worlds.
-
-Fix: add one helper (`has_met(a, b, history) -> bool` based on key presence) and use it everywhere;
-never infer "has met" from a numeric score.
-
----
-
-### B3 — CRITICAL — lock application is order-dependent and silently leaves locks unsatisfied
-
-`algorithm/engine.py:221-255` (`_apply_locks`)
-
-Locks are applied one pass, in list order, with no re-check. Satisfying lock *N* can break lock *N-1*:
-a `together` lock swaps the second student in by displacing the first member of the target team, which
-may itself be a locked partner.
-
-Reproduction (26 students, team size 4, 40 random history pairs, one 3-person `together` chain
-`s20-s13-s04`, 60 seeds through the public `form_teams`):
-
-```
-unsatisfied 3-person 'together' chain: 27/60 runs (45%)
-example: members ['s20','s13','s04'] -> team indices [1, 4, 4]
-```
-
-Direct stress on `_apply_locks` alone: **731 lock violations in 3,000 randomized trials (~24%)**.
-
-`form_teams` returns normally in all of these cases — no exception, no flag, nothing in
-`FormationResult` indicating a lock was dropped. This directly violates `problem_final.md` §4.2
-("The system treats locked students as fixed constraints") and §11 ("The system does not guess or
-partially apply the constraint").
-
-Fix: (a) apply locks to a fixpoint — repeat passes until no lock changes state or a bounded number
-of iterations elapses; (b) treat a `together` cluster as an indivisible unit when choosing the
-displaced member (never displace a student who is itself locked to a team member); (c) re-validate
-all locks after `_apply_locks` and raise/report if any remain unsatisfied.
+Minimum additions: a `test_all_locks_satisfied(result, locks)` invariant helper called by every engine
+test that passes locks; a 3-lock chain over ≥100 seeds with history; assertions that `validate_locks`
+catches a cluster contradiction and an `apart`-edge-infeasible set; and
+`assert result.elapsed_seconds < time_limit * 1.5` on a dense-history case.
 
 ---
 
-### B4 — HIGH — the fairness pass runs after locks and can break them
+## 6. Fixes confirmed in the working tree
 
-`algorithm/engine.py:147` — `fairness_enforce(best_teams, history)` runs as the last step, after
-`_apply_locks`, and performs unrestricted swaps. Nothing re-applies or re-checks locks afterwards.
+Recorded with the evidence used to close each one.
 
-Deterministic reproduction (admin lock: `s0` must be together with `p`):
-
-```
-before: [['s0','p','q'], ['c','x','y']]        # s0 has met both p and q -> fairness violation
-after : [['s0','c','q'], ['p','x','y']]        # 'together' lock now BROKEN
-'together' lock still satisfied: False
-violations after enforce: []
-```
-
-So the fairness guarantee and the lock guarantee are mutually exclusive in the current pipeline, and
-whichever runs last silently wins.
-
-Fix: run fairness **before** `_apply_locks`, or make both passes lock-aware (never swap a student who
-participates in a lock) and add a final invariant check that raises on violation.
+| # | Fix | Verification evidence |
+|---|---|---|
+| B1 | `pair_score` clamps recency into `[0, RECENCY_SCALE-1]` and adds it to `count * RECENCY_SCALE` (`scorer.py:31-41`) | min met-pair score = 1000 over counts 1–5 × ages 0…10⁶; never-met = 0; `count=1` max (1999) < `count=2` min (2000) — count is strictly primary |
+| B2 | new `has_met()` (`scorer.py:26`), used by `count_new_pairs`, `_conflict_students`, `_new_pairs_in`, `_find_violations`, `_try_fix` | `has_met(a,b,h) == (pair_score(a,b,h) > 0)` on 20,000 randomized (count, days) combos → 0 mismatches |
+| B4 | fairness now runs **before** lock application (`engine.py:85-86, 121-123`) | the old deterministic repro (`s0` locked with `p`, both repeats) now ends with the lock satisfied and `unfair_students=['s1']` honestly reported |
+| B5 | `grew` set restricts absorb extras to distinct teams (`greedy.py:60-68`) | 62 students / team size 6 → `(6,)*10 + (7,7)` on 50/50 seeds (was one team of 8 on 40/40); 65/6 → ten 6s + one 5 |
+| B7 | `team_size < 1` raises `ValueError` (`engine.py:67-68`) | `ValueError: team_size must be >= 1, got 0` |
+| B8 | `saturation()` takes `registered` and clamps to `[0.0, 1.0]` (`scorer.py:66-84`); engine passes `registered=students` (`engine.py:126`) | 20 unrelated pairs with n=5 → 1.0 (clamped); with `registered=['a','b']` an out-of-cohort pair is excluded |
+| B10 | duplicate IDs raise `ValueError` (`engine.py:71-73`) | `ValueError: students list contains duplicate IDs: ['a']` |
+| B12 | best seeded before the loop, `score == 0` checked before entering (`engine.py:96-102`) | `restarts=0` ↔ `place()` calls = 1 |
+| B16 | `.gitignore` added; `.venv` and bytecode untracked | tracked `.venv` files 1393 → 0; tracked `__pycache__` 665 → 0 |
 
 ---
 
-### B5 — HIGH — remainder "absorb" puts every leftover student in the same team
-
-`algorithm/greedy.py:85-90`
-
-```python
-for student in extras:
-    idx = min(range(len(teams)), key=lambda i: marginal_score(student, teams[i], history))
-```
-
-There is no per-team capacity or round-robin restriction, so with an empty history (all marginal
-scores 0) `min` always returns index 0 and **all extras land on team 0**, producing a team of
-`team_size + r`. `problem_final.md` §7.6 and `algorithm_approach1.md` §Remainder Rule both require
-one extra per team ("those teams become team size + 1").
-
-Reproduction — the worked example from the docs, 62 students / team size 6, over 30 seeds:
-
-```
-observed: (6,6,6,6,6,6,6,6,6,8)   x30/30 seeds
-spec:     (6,6,6,6,6,6,6,6,6,7,7)
-```
-
-Team of 8 instead of two teams of 7, deterministically. (The `r >= team_size/2` "new small team"
-branch is correct: 65/6 → `(5,6,6,6,6,6,6,6,6,6,6)` on 30/30 seeds.)
-
-Fix: track which teams already received an extra and exclude them from the candidate set
-(`candidates = [i for i in range(len(teams)) if not grew[i]]`).
-
----
-
-### B6 — HIGH — `validate_locks` misses every unsatisfiable case except cluster size
-
-`algorithm/engine.py:168-193`
-
-Only "together cluster larger than team_size" is detected. Not detected:
-
-```python
-validate_locks([Lock("a","a","together")], 3)                                  # [] self-lock
-validate_locks([Lock("a","b","together"), Lock("a","b","apart")], 3)          # [] contradiction
-validate_locks([Lock("a","b","apart")], 4)                                    # [] impossible: 2 students
-                                                                            #   <= team_size -> one team
-```
-
-The contradictory pair is the worst case: `form_teams` applies them in order and the last one wins,
-so the admin's two contradictory instructions are silently resolved by list order. The `n <=
-team_size` case is common in practice (spec §11 "Fewer registered students than team size → one team
-containing everyone"), and any `apart` lock in that situation is unsatisfiable.
-
-`problem_final.md` §4.2 requires the admin to be told **before** formation runs, and the engine itself
-never calls `validate_locks` — it is dead code unless a future service wires it up.
-
-Fix: reject self-locks and unknown `constraint_type` values; detect together+apart on the same
-cluster; take the participant count as a parameter and flag `apart` locks when
-`ceil(n / team_size) < 2`; also check `apart` edge-count feasibility
-(`sum(cluster_size - 1) > teams * (team_size - 1)` is unsatisfiable).
-
----
-
-### B7 — MEDIUM — `form_teams` crashes on `team_size <= 0`
-
-`algorithm/greedy.py:47` — `r = n % team_size`
-
-```
-form_teams(["a","b","c"], 0, {}, time_limit=0.1)
--> ZeroDivisionError: integer modulo by zero
-```
-
-Nothing validates `team_size`, and this will be a direct API payload from
-`POST /cohorts/{id}/activities`. Fix: validate `team_size >= 1` (and `len(students) >= 0`) at the top
-of `form_teams` and raise `ValueError`.
-
----
-
-### B8 — MEDIUM — `saturation()` can exceed 1.0 and counts pairs outside the activity
-
-`algorithm/scorer.py:81-89` — `len(history) / (n*(n-1)//2)` with no filtering and no clamp:
-
-```
-saturation(20 unrelated pairs, n_students=5) -> 19.0
-```
-
-In production the formation service will pass the **cohort-wide** history from `team_members`, which
-includes archived members and students who did not register for this activity. Any such pair inflates
-the numerator, so the metric can exceed 100% and the ≥ 0.80 admin warning
-(`algorithm_approach1.md` §Saturation Warning, plan §Formation Flow step 8) will fire on healthy
-cohorts.
-
-Fix: intersect history keys with the registered student set before counting, and clamp to `[0.0, 1.0]`.
-
----
-
-### B9 — MEDIUM — `time_limit` is not enforced inside a restart cycle
-
-`algorithm/engine.py:127` only checks the clock between restarts. One `place()` + `swap_optimise()`
-cycle runs to completion regardless, so the overrun is bounded by one cycle, not by the limit:
-
-```
-N=200, k=5, history=11,094 pairs: place=0.03s  swap_optimise=0.35s  -> ~0.38s past time_limit
-N=500, k=5, history=62,571 pairs: place=0.11s  swap_optimise=0.14s  -> ~0.25s past time_limit
-time_limit=0.5s -> actual 0.60s (1.2x), restarts=2
-```
-
-The APScheduler deadline job (plan §Scheduler) and any inline cap-hit formation would block the event
-loop for longer than configured. The plan never ran this in anger because `swap_optimise` has no
-deadline parameter.
-
-Fix: thread a deadline into `optimise()` and check it between swap passes. Note also that
-`algorithm_approach1.md:157` ("only the two affected teams are re-scored per swap check — O(1) per
-candidate swap") does not hold: `team_score` for both teams is recomputed from scratch for every
-candidate (`swapper.py:54-73`), which is O(k²) per swap check.
-
----
-
-### B10 — MEDIUM — duplicate IDs in `students` produce a student on the same team twice
-
-`algorithm/greedy.py:63-90`, no uniqueness check anywhere in `form_teams`.
-
-```
-in=['a','b','c','a']       k=2 -> [['b','c'], ['a','a']]
-in=['a','b','c','d','a']   k=2 -> [['b','c','a'], ['a','d']]
-in=['x','y','z','x','w']   k=3 -> [['y','z','w'], ['x','x']]
-```
-
-The duplicate is treated as two independent students, so one person occupies two slots on one team
-and the team sizes no longer match the remainder rule. `test_engine.py:106` asserts "no duplicates in
-teams" but only with unique inputs, so it passes. Likelihood is low (registrations carry
-`UNIQUE (activity_id, user_id)`), but the algorithm is a pure function over a student list and should
-reject bad input rather than emit a nonsensical arrangement: add
-`if len(set(students)) != len(students): raise ValueError(...)`.
-
----
-
-### B11 — LOW — fairness pass does not iterate to a fixpoint and can create new violations
-
-`algorithm/fairness.py:29-36` — the violation list is computed once; each fix only checks the
-violating student and the incoming student (`fairness.py:108-118`), never the student who was swapped
-**out** into the other team. Randomized trials: **new violations appear in 166/3,000 runs (~5.5%)**,
-e.g. `s6` gains an all-repeat team after `enforce`. `enforce` returns `teams` regardless, and
-`engine.py:147` accepts whatever comes back.
-
-Fix: after each accepted swap, recompute violations for the affected teams and continue until stable
-or a bounded iteration count is reached.
-
----
-
-### B12 — LOW — first restart is computed twice and `restarts` undercounts
-
-`algorithm/engine.py:120-142` — `place()` + `swap_optimise()` run once to seed `best`, then the
-`while` loop immediately runs the identical pair again before the `best_score == 0` check can exit.
-One full optimisation cycle of the time budget is wasted, and `FormationResult.restarts` reports one
-less than the number of cycles actually performed. Move the `if best_score == 0: break` check above
-the loop, or seed `best` inside the loop.
-
----
-
-### B13 — LOW — `Lock` accepts invalid data and unregistered students silently no-op
-
-`algorithm/engine.py:42-50, 226-227, 229-255`
-
-- `constraint_type` is a bare `str`; anything other than `"together"`/`"apart"` is silently ignored
-  (`_apply_locks` has no `else` branch) — a typo in an API payload produces teams with no lock applied
-  and no warning.
-- A lock naming a student who did not register is skipped with `continue` (line 226) — correct
-  behaviour, but it is invisible to the caller; `FormationResult` has no field for "locks skipped".
-- `_apply_locks` mutates the caller's list in place and returns it, while `_together_clusters` uses
-  union-find but `validate_locks` never checks `apart` feasibility (see B6).
-
-Fix: validate `constraint_type` in `Lock.__post_init__`, and return skipped/unsatisfiable locks from
-`form_teams` so the service can log them.
-
----
-
-### B14 — LOW — unused import and dead parameter
-
-- `algorithm/engine.py:24` — `from copy import deepcopy` is never used.
-- `algorithm/engine.py:104-115` — the no-history stage returns hardcoded `score=0,
-  saturation=0.0` and ignores `time_limit` entirely; harmless today but it means the two code paths
-  report metrics by different rules.
-
----
-
-### B15 — LOW — package path / documentation mismatch
-
-- `algorithm/__init__.py:6` documents `from backend.algorithm.engine import form_teams, ...` — that
-  module does not exist; the package is importable as `algorithm` only.
-- `implementation_plan.md` §Project Layout places the algorithm at `backend/algorithm/` and has
-  `tests/` importing from there; reality is the inverse. Every future backend import and the
-  formation service's import line will be wrong until this is settled.
-
----
-
-### B16 — LOW — `.venv` and bytecode committed, no `.gitignore`
-
-```
-tracked files:            1,425
-  under .venv/:           1,393  (97.8%)
-  __pycache__/*.pyc:        665  (12 outside .venv)
-  actual source + docs:      20
-.gitignore:               absent
-```
-
-The repo carries the entire virtualenv (including pip's vendored `requests`, `urllib3`, `rich`,
-`colorama`, …). Any clone is ~13 MB of noise, every `git status` is unusable, and diffs are at risk of
-being polluted by `.pyc` churn. Fix: add `.gitignore` (`.venv/`, `__pycache__/`, `*.pyc`,
-`.pytest_cache/`) and `git rm -r --cached .venv __pycache__`.
-
----
-
-## 3. Test-suite gaps that let the bugs above pass
-
-80 tests pass, and none of them catch B1–B10. The suite's blind spots:
-
-| Gap | Allows |
-|---|---|
-| All lock tests use `empty_history` (`test_engine.py:172-190`), i.e. only the stage-1 no-history path where a single swap always succeeds. No multi-lock test through `form_teams` with history. | B3, B4 |
-| `test_absorb_remainder` (`test_greedy.py:25-32`) asserts only team count, total size, and "no solo teams" — never per-team sizes. | B5 |
-| `test_score_lower_than_naive_random` (`test_engine.py:112-122`) has a docstring promising a comparison against random arrangement; the body only asserts `result.score >= 0`. It is a vacuous test, and the `>= 0` assertion is exactly the invariant B1 violates (it only passes because no fixture uses `days_ago > 1000`). | B1 |
-| `tests/algorithm/conftest.py` uses `days_ago` values 5–100; nothing exercises `days_ago > 1000`, i.e. the regime where the score formula breaks. | B1, B2 |
-| `TestValidateLocks` covers only 4 cases, all about cluster size. No self-lock, contradiction, or `n <= team_size` case. | B6 |
-| No test for `team_size <= 0`, duplicate student IDs, `saturation` bounds, or `time_limit` adherence. | B7, B8, B9, B10 |
-| Lock and fairness tests are single fixed scenarios, not property/randomized tests, so order-dependence and new-violation creation are invisible. | B3, B11 |
-| No integration test at all — `FormationResult` is never checked for "every lock satisfied" or "team sizes match the remainder rule" as an invariant. | B3, B4, B5 |
-
-Minimum bar to add: a `test_all_locks_satisfied(result, locks)` invariant helper called by every
-engine test that passes locks; a randomized lock test over ≥100 seeds; a per-team-size assertion in
-the remainder tests; and a `days_ago = 4000` fixture asserting `pair_score > 0` and
-`score == 0 ⟺ no repeats`.
-
----
-
-## 4. Suggested fix order
-
-1. **B1 + B2** (scoring correctness) — one-line-ish change, invalidates every downstream guarantee.
-2. **B3 + B4** (locks) — admin hard constraints must never be silently dropped; add the invariant
-   check and fix the tests that hide it.
-3. **B5** (remainder distribution) — deterministic, one-line fix, breaks documented team sizes.
-4. **B7 + B10** (input validation in `form_teams`) — this is the API boundary the backend will call.
-5. **B6** (complete `validate_locks`, wire it into `form_teams`) — required by spec §4.2/§11 before
-   the formation service exists.
-6. **B8 + B9** (metric clamp, deadline threading) — needed before the scheduler exists.
-7. **B11, B12, B13, B14** — cleanups, can ride along with the above.
-8. **B15 + B16** — settle `algorithm/` vs `backend/algorithm/` and add `.gitignore` before the
-   backend scaffold lands, otherwise the first commit of the web layer cements the wrong paths.
-
----
-
-## 5. Fixes Applied
-
-All 16 bugs fixed. Test suite expanded from 80 to 96 tests — all passing.
-Fix commit covers: `algorithm/scorer.py`, `algorithm/greedy.py`, `algorithm/swapper.py`,
-`algorithm/fairness.py`, `algorithm/engine.py`, `algorithm/__init__.py`, `.gitignore`.
-
----
-
-### B1 — Scoring formula goes negative
-**File:** `algorithm/scorer.py`
-**Fix:** Replaced `count * 1000 - days_ago` with
-`count * RECENCY_SCALE + (RECENCY_SCALE - 1 - min(days_ago, RECENCY_SCALE - 1))`.
-Any met pair now always scores ≥ 1. Count remains primary, recency is clamped to [0, 999].
-Score == 0 is once again the strict invariant for "never met".
-
----
-
-### B2 — Two contradictory has-met checks
-**File:** `algorithm/scorer.py`, `algorithm/swapper.py`, `algorithm/fairness.py`
-**Fix:** Added `has_met(a, b, history) -> bool` to `scorer.py` based purely on key
-presence (`pair_key(a, b) in history`). All "have these two met?" checks in `swapper.py`
-(`_conflict_students`) and `fairness.py` (`_find_violations`, `_try_fix`) now call `has_met`.
-No code anywhere derives "has met" from a numeric score.
-
----
-
-### B3 — Lock application order-dependent, silently incomplete
-**File:** `algorithm/engine.py`
-**Fix:** Replaced single-pass `_apply_locks` with `_apply_locks_fixpoint` — iterates up
-to 20 times until all locks satisfy or no progress is made. `_apply_one_lock` never displaces
-a student who is a participant in another lock. `FormationResult.unsatisfied_locks` reports
-any locks that could not be satisfied after the fixpoint loop.
-
----
-
-### B4 — Fairness pass runs after locks and can break them
-**File:** `algorithm/engine.py`
-**Fix:** Reordered pipeline: fairness pass now runs **before** lock application.
-Order: greedy → swap → fairness → locks.
-
----
-
-### B5 — Absorb remainder puts all extras on team 0
-**File:** `algorithm/greedy.py`
-**Fix:** Added a `grew: set[int]` tracker. Each extra student goes to the best-scoring
-team that has not yet received an extra. Extras are distributed one per team, matching the
-spec ("those teams become team_size + 1").
-
----
-
-### B6 — validate_locks misses most impossible cases
-**File:** `algorithm/engine.py`
-**Fix:** `validate_locks` now catches: self-locks (`student_a == student_b`), contradictions
-(same pair locked both together and apart), and apart-locks when `n_students <= team_size`
-(only one team possible). Takes `n_students` as an optional parameter.
-
----
-
-### B7 — form_teams crashes on team_size <= 0
-**File:** `algorithm/engine.py`
-**Fix:** Added `if team_size < 1: raise ValueError(...)` at the top of `form_teams`.
-
----
-
-### B8 — saturation() can exceed 1.0
-**File:** `algorithm/scorer.py`
-**Fix:** `saturation()` now accepts an optional `registered` list. When provided, only
-pairs within that set are counted. Result is clamped to `[0.0, 1.0]`. `engine.py` passes
-`registered=students` when computing saturation for a `FormationResult`.
-
----
-
-### B9 — Time limit not enforced inside a restart cycle
-**File:** `algorithm/engine.py`
-**Fix:** The `while` loop now checks `time.monotonic() - start < time_limit` at the top
-of each iteration before launching a new `place + swap` cycle. Combined with B12 fix
-(seeding best before the loop), the first cycle's cost is always paid before the check.
-
----
-
-### B10 — Duplicate student IDs produce nonsense teams
-**File:** `algorithm/engine.py`
-**Fix:** Added `if len(students) != len(set(students)): raise ValueError(...)` with the
-duplicate IDs listed in the message.
-
----
-
-### B11 — Fairness pass can create new violations
-**File:** `algorithm/fairness.py`
-**Fix:** `enforce()` now iterates in a loop (up to `max_passes=10`). After each round of
-fixes, violations are recomputed. The loop exits early when no violations remain or when
-a full round produces no fixes (exhausted).
-
----
-
-### B12 — First restart computed twice, restarts undercounts
-**File:** `algorithm/engine.py`
-**Fix:** Best result is seeded once before the loop. The loop checks `best_score == 0`
-before entering (early exit for no-history or perfect first placement). `restarts` now
-correctly counts only the iterations inside the loop.
-
----
-
-### B13 — Lock accepts invalid constraint_type, skips silently
-**File:** `algorithm/engine.py`
-**Fix:** Added `Lock.__post_init__` that raises `ValueError` if `constraint_type` is not
-`"together"` or `"apart"`. Added `unsatisfied_locks: list[Lock]` field to `FormationResult`
-so callers can detect and log locks that could not be satisfied.
-
----
-
-### B14 — Unused import
-**File:** `algorithm/engine.py`
-**Fix:** Removed `from copy import deepcopy`.
-
----
-
-### B15 — Package path / doc mismatch
-**File:** `algorithm/__init__.py`
-**Fix:** Updated docstring and imports to reflect the actual root-level `algorithm/` path.
-All imports now use `from algorithm.X import Y` consistently.
-
----
-
-### B16 — .venv committed, no .gitignore
-**Files:** `.gitignore` (new), git index
-**Fix:** Created `.gitignore` covering `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`.
-Ran `git rm -r --cached .venv/` and `git rm --cached` on all tracked `.pyc` files.
-
----
-
-> **Update 2026-10-04:** fixes for B1-B16 have been attempted. Verification of what is actually
-> fixed vs still broken (measured in the working tree): see
-> [`reports/bug_fixes_verification.md`](bug_fixes_verification.md). Summary: 9 fixed, 3 partial,
-> 4 still broken (B3 locks, B6 lock validation, B9 time_limit, B11 fairness).
+## 7. Fix order for what remains
+
+1. **B3** — lock-aware eviction + treat `max_iterations` exhaustion as an error; wire
+   `unsatisfied_locks` into an abort path.
+2. **B6** — cluster-based contradiction detection, `apart` edge feasibility, `n_students` required,
+   and actually call `validate_locks` from the formation path.
+3. **N1** — add `.env` to `.gitignore` before `backend/.env` is created.
+4. **B9** — thread a deadline into `swapper.optimise`, cache team scores.
+5. **N2** — hold the formation service to the new contract as it is written (still 0% built).
+6. **N5** — add the invariant/randomized tests above so the next regression cannot hide.
+7. **B11, B13, B14/N3, N4** — cleanups and doc corrections.
