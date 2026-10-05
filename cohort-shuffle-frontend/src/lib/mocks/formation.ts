@@ -207,3 +207,52 @@ export async function validateLocks(
   }
   return [];
 }
+
+/**
+ * PATCH /teams/:teamId/members
+ * Moves a student from their current team to a target team.
+ * Returns the updated FormationResult (all teams reflect the move).
+ *
+ * Rules:
+ *  - studentId is removed from their current team.
+ *  - studentId is added to targetTeamId.
+ *  - If their original team becomes empty, it is removed.
+ */
+export async function moveStudentBetweenTeams(
+  activityId: string,
+  studentId: string,
+  targetTeamId: string
+): Promise<FormationResult> {
+  await new Promise((r) => setTimeout(r, 300));
+
+  const result = _formationResults[activityId];
+  if (!result) throw new Error("No formation result found for this activity.");
+
+  // Deep-clone teams so we can mutate safely
+  const teams = result.teams.map((t) => ({
+    ...t,
+    members: [...t.members],
+  }));
+
+  // Find which team the student is currently on
+  const sourceTeam = teams.find((t) => t.members.some((m) => m.id === studentId));
+  const destTeam = teams.find((t) => t.teamId === targetTeamId);
+
+  if (!sourceTeam) throw new Error("Student not found in any team.");
+  if (!destTeam) throw new Error("Target team not found.");
+  if (sourceTeam.teamId === destTeam.teamId) return result; // no-op
+
+  // Move the student
+  const student = sourceTeam.members.find((m) => m.id === studentId)!;
+  sourceTeam.members = sourceTeam.members.filter((m) => m.id !== studentId);
+  destTeam.members = [...destTeam.members, student];
+
+  // Remove empty teams, renumber
+  const nonEmpty = teams
+    .filter((t) => t.members.length > 0)
+    .map((t, i) => ({ ...t, teamNumber: i + 1 }));
+
+  const updated: FormationResult = { ...result, teams: nonEmpty };
+  _formationResults[activityId] = updated;
+  return updated;
+}

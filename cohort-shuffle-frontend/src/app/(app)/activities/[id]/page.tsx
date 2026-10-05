@@ -19,6 +19,7 @@ import {
   ShieldAlert,
   ChevronDown,
   ChevronUp,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,9 +47,11 @@ import {
   fetchFormationLogs,
   triggerFormation,
   validateLocks,
+  moveStudentBetweenTeams,
 } from "@/lib/mocks/formation";
 import { FormedTeamsView } from "@/components/activities/FormedTeamsView";
 import { FormationLogPanel } from "@/components/activities/FormationLogPanel";
+import { TeamEditView } from "@/components/activities/TeamEditView";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -273,6 +276,8 @@ function AdminFormationSection({
   const [loadingTeams, setLoadingTeams] = useState(
     activity.status === "formed"
   );
+  // Edit mode — toggled by "Edit teams" / "Done editing"
+  const [editMode, setEditMode] = useState(false);
 
   // Load existing teams + logs if already formed
   useEffect(() => {
@@ -413,20 +418,55 @@ function AdminFormationSection({
 
   return (
     <div className="space-y-4">
-      {/* Success header */}
-      <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
-        <CheckCircle2 className="h-4 w-4 shrink-0" />
-        Teams formed · {activity.formationRunCount} run
-        {activity.formationRunCount !== 1 ? "s" : ""}
+      {/* Success header + action buttons row */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          Teams formed · {activity.formationRunCount} run
+          {activity.formationRunCount !== 1 ? "s" : ""}
+        </div>
+
+        {/* Edit / Re-run buttons — only before event starts */}
+        {!isPast && !editMode && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setEditMode(true)}
+              disabled={forming || !formationResult}
+            >
+              <Pencil className="mr-1.5 h-4 w-4" />
+              Edit teams
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleFormTeams}
+              disabled={forming}
+            >
+              {forming ? (
+                <>
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  Re-running…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-1.5 h-4 w-4" />
+                  Re-run
+                </>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Saturation warning */}
-      {formationResult?.saturated && (
+      {formationResult?.saturated && !editMode && (
         <SaturationWarning saturation={formationResult.saturation} />
       )}
 
       {/* Unfair students warning */}
-      {formationResult && formationResult.unfairStudents.length > 0 && (
+      {!editMode && formationResult && formationResult.unfairStudents.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-800/40 dark:bg-yellow-950/30 dark:text-yellow-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
@@ -437,34 +477,6 @@ function AdminFormationSection({
         </div>
       )}
 
-      {/* Re-run button (only before event starts) */}
-      {!isPast && (
-        <div className="flex items-center gap-3">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleFormTeams}
-            disabled={forming}
-          >
-            {forming ? (
-              <>
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                Re-running…
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-1.5 h-4 w-4" />
-                Re-run formation
-              </>
-            )}
-          </Button>
-          {lockErrors.length > 0 && (
-            <span className="text-xs text-destructive">
-              Fix lock errors above first
-            </span>
-          )}
-        </div>
-      )}
       {lockErrors.length > 0 && <LockErrorBanner errors={lockErrors} />}
       {formationError && (
         <p className="flex items-center gap-1.5 text-sm text-destructive">
@@ -473,13 +485,24 @@ function AdminFormationSection({
         </p>
       )}
 
-      {/* Team grid */}
+      {/* Team view — read mode or edit mode */}
       {formationResult && (
-        <FormedTeamsView result={formationResult} isAdmin />
+        editMode ? (
+          <TeamEditView
+            result={formationResult}
+            onMove={(studentId, targetTeamId) =>
+              moveStudentBetweenTeams(activity.id, studentId, targetTeamId)
+            }
+            onDone={() => setEditMode(false)}
+            onResultUpdate={(updated) => setFormationResult(updated)}
+          />
+        ) : (
+          <FormedTeamsView result={formationResult} isAdmin />
+        )
       )}
 
-      {/* Formation log (collapsible) */}
-      <CollapsibleLogPanel logs={formationLogs} />
+      {/* Formation log (collapsible) — hidden while editing to reduce noise */}
+      {!editMode && <CollapsibleLogPanel logs={formationLogs} />}
     </div>
   );
 }

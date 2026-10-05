@@ -145,3 +145,26 @@ export async function validateLocks(activityId: string): Promise<string[]> {
   );
   return data.errors;
 }
+
+/**
+ * PATCH /teams/:teamId/members
+ * Moves a student to a different team.
+ * Returns the updated full FormationResult.
+ */
+export async function moveStudentBetweenTeams(
+  activityId: string,
+  studentId: string,
+  targetTeamId: string
+): Promise<FormationResult> {
+  const data = await apiFetch<FormationResultBackend>(
+    `/teams/${targetTeamId}/members`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        student_id: studentId,
+        action: "move_to_this_team",
+      }),
+    }
+  );
+  return toFormationResult(data);
+}
