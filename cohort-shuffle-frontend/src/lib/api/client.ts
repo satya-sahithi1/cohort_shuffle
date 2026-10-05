@@ -30,7 +30,7 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  // Grab the session token so the backend can identify the user
+  // Grab the session — accessToken is the signed JWT the backend verifies
   const session = await getSession();
   const token = (session as { accessToken?: string } | null)?.accessToken;
 

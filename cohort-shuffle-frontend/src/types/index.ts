@@ -68,11 +68,13 @@ export interface Registration {
 }
 
 // ─── NextAuth session augmentation ───────────────────────────────────────────
-// Extends the default Session to carry id and role on the user object.
+// Extends the default Session and JWT to carry id, role, and accessToken.
 
 declare module "next-auth" {
   interface Session {
     user: AppUser;
+    /** The raw JWT string, used by the API client as Bearer token. */
+    accessToken: string;
   }
 
   interface User {

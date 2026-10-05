@@ -65,9 +65,12 @@ function StatusBadge({ activity }: { activity: Activity }) {
   }
   if (activity.status === "closed") {
     return (
-      <Badge variant="outline" className="gap-1 text-muted-foreground">
+      <Badge
+        variant="outline"
+        className="gap-1 border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400"
+      >
         <Lock className="h-3 w-3" />
-        Closed
+        Forming soon
       </Badge>
     );
   }

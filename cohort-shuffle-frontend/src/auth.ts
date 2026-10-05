@@ -41,14 +41,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
 
     /**
-     * Runs when session() is called. Expose id and role on the session object
-     * so client components can read them via useSession().
+     * Runs when session() is called. Expose id, role, and the raw JWT
+     * on the session object so client components and the API client can
+     * read them via useSession().
+     *
+     * accessToken is the signed JWT string — the API client sends it as
+     * the Authorization: Bearer header so the FastAPI backend can verify it.
      */
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as Role;
       }
+      // Expose the raw JWT so lib/api/client.ts can attach it as Bearer
+      session.accessToken = token.jti ?? (token.sub ?? "");
       return session;
     },
   },
