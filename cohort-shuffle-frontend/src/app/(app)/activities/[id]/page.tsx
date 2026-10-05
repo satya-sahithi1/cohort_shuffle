@@ -16,6 +16,9 @@ import {
   RefreshCw,
   UserCheck,
   Play,
+  ShieldAlert,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +28,12 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui/card";
-import type { Activity, Registration } from "@/types";
+import type {
+  Activity,
+  FormationLog,
+  FormationResult,
+  Registration,
+} from "@/types";
 import {
   fetchActivity,
   fetchMyRegistration,
@@ -33,6 +41,14 @@ import {
   registerForActivity,
   unregisterFromActivity,
 } from "@/lib/api/activities";
+import {
+  fetchFormedTeams,
+  fetchFormationLogs,
+  triggerFormation,
+  validateLocks,
+} from "@/lib/mocks/formation";
+import { FormedTeamsView } from "@/components/activities/FormedTeamsView";
+import { FormationLogPanel } from "@/components/activities/FormationLogPanel";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -58,18 +74,15 @@ function formatShort(iso: string): string {
 
 function DeadlineCountdown({ deadlineIso }: { deadlineIso: string }) {
   const [, forceUpdate] = useState(0);
-
   useEffect(() => {
     const id = setInterval(() => forceUpdate((n) => n + 1), 30_000);
     return () => clearInterval(id);
   }, []);
 
   const diff = new Date(deadlineIso).getTime() - Date.now();
-  if (diff <= 0) {
-    return (
-      <span className="text-muted-foreground">Registration closed</span>
-    );
-  }
+  if (diff <= 0)
+    return <span className="text-muted-foreground">Registration closed</span>;
+
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   const urgent = hours < 4;
@@ -128,13 +141,12 @@ function RegistrationList({
     });
   }, [activityId]);
 
-  if (loading) {
+  if (loading)
     return (
       <div className="flex justify-center py-6">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
-  }
 
   return (
     <div className="space-y-2">
@@ -168,6 +180,310 @@ function RegistrationList({
   );
 }
 
+// ─── Saturation warning ───────────────────────────────────────────────────────
+
+function SaturationWarning({ saturation }: { saturation: number }) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800 dark:border-orange-800/40 dark:bg-orange-950/30 dark:text-orange-300">
+      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="space-y-0.5">
+        <p className="font-medium">High saturation warning</p>
+        <p className="text-xs opacity-90">
+          {Math.round(saturation * 100)}% of all possible teammate pairs in
+          this cohort have already worked together. Zero-repeat teams are no
+          longer achievable — the algorithm is minimising repeats as best it
+          can.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Lock error banner ────────────────────────────────────────────────────────
+
+function LockErrorBanner({ errors }: { errors: string[] }) {
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        Lock constraints cannot be satisfied
+      </div>
+      <ul className="space-y-1 text-xs text-destructive/90">
+        {errors.map((e, i) => (
+          <li key={i} className="flex gap-1.5">
+            <span className="shrink-0">•</span>
+            {e}
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted-foreground">
+        Fix the lock constraints before running formation.
+      </p>
+    </div>
+  );
+}
+
+// ─── Collapsible formation log ─────────────────────────────────────────────────
+
+function CollapsibleLogPanel({ logs }: { logs: FormationLog[] }) {
+  const [open, setOpen] = useState(false);
+  if (logs.length === 0) return null;
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between text-sm font-medium text-muted-foreground hover:text-foreground transition-colors py-1"
+      >
+        <span>Formation history ({logs.length} run{logs.length !== 1 ? "s" : ""})</span>
+        {open ? (
+          <ChevronUp className="h-4 w-4" />
+        ) : (
+          <ChevronDown className="h-4 w-4" />
+        )}
+      </button>
+      {open && (
+        <div className="mt-2">
+          <FormationLogPanel logs={logs} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Admin formation section ──────────────────────────────────────────────────
+
+interface AdminFormationSectionProps {
+  activity: Activity;
+  onActivityUpdate: (updated: Activity) => void;
+}
+
+function AdminFormationSection({
+  activity,
+  onActivityUpdate,
+}: AdminFormationSectionProps) {
+  const isPast = new Date(activity.eventAt) < new Date();
+
+  const [forming, setForming] = useState(false);
+  const [lockErrors, setLockErrors] = useState<string[]>([]);
+  const [formationResult, setFormationResult] =
+    useState<FormationResult | null>(null);
+  const [formationLogs, setFormationLogs] = useState<FormationLog[]>([]);
+  const [formationError, setFormationError] = useState<string | null>(null);
+  const [loadingTeams, setLoadingTeams] = useState(
+    activity.status === "formed"
+  );
+
+  // Load existing teams + logs if already formed
+  useEffect(() => {
+    if (activity.status !== "formed") return;
+    Promise.all([
+      fetchFormedTeams(activity.id),
+      fetchFormationLogs(activity.id),
+    ]).then(([result, logs]) => {
+      setFormationResult(result);
+      setFormationLogs(logs);
+      setLoadingTeams(false);
+    });
+  }, [activity.id, activity.status]);
+
+  const handleFormTeams = async () => {
+    setFormationError(null);
+    setLockErrors([]);
+
+    // 1. Pre-flight lock validation
+    setForming(true);
+    try {
+      const errors = await validateLocks(activity.id);
+      if (errors.length > 0) {
+        setLockErrors(errors);
+        setForming(false);
+        return;
+      }
+    } catch {
+      setFormationError("Failed to validate locks. Please try again.");
+      setForming(false);
+      return;
+    }
+
+    // 2. Trigger formation
+    try {
+      const result = await triggerFormation(activity.id);
+
+      // Update local state
+      setFormationResult(result);
+      setFormationLogs((prev) => [
+        {
+          id: `log-${result.runNumber}`,
+          activityId: activity.id,
+          runNumber: result.runNumber,
+          triggeredBy: "me",
+          triggeredByName: "Admin",
+          score: result.score,
+          repeatPairs: result.repeatPairs,
+          saturation: result.saturation,
+          createdAt: result.triggeredAt,
+        },
+        ...prev,
+      ]);
+
+      // Tell parent the activity is now formed
+      onActivityUpdate({
+        ...activity,
+        status: "formed",
+        formationRunCount: result.runNumber,
+      });
+    } catch (e: unknown) {
+      setFormationError(
+        e instanceof Error ? e.message : "Formation failed. Please try again."
+      );
+    } finally {
+      setForming(false);
+    }
+  };
+
+  // ── Status: open ──
+  if (activity.status === "open") {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Formation runs automatically at the deadline
+          {activity.participantCap !== null && " or when the cap is reached"}.
+          You can also trigger it manually once registration closes.
+        </p>
+        <Button size="sm" variant="outline" disabled>
+          <Play className="mr-1.5 h-4 w-4" />
+          Form teams now
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Manual trigger is available after registration closes.
+        </p>
+      </div>
+    );
+  }
+
+  // ── Status: closed — ready to form ──
+  if (activity.status === "closed") {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Registration is closed.{" "}
+          {activity.registrationCount === 0
+            ? "No students registered — no teams to form."
+            : `${activity.registrationCount} students registered.`}
+        </p>
+
+        {lockErrors.length > 0 && <LockErrorBanner errors={lockErrors} />}
+        {formationError && (
+          <p className="flex items-center gap-1.5 text-sm text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {formationError}
+          </p>
+        )}
+
+        <Button
+          size="sm"
+          onClick={handleFormTeams}
+          disabled={forming || activity.registrationCount === 0}
+        >
+          {forming ? (
+            <>
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              Forming teams…
+            </>
+          ) : (
+            <>
+              <Play className="mr-1.5 h-4 w-4" />
+              Form teams
+            </>
+          )}
+        </Button>
+      </div>
+    );
+  }
+
+  // ── Status: formed — show results ──
+  if (loadingTeams) {
+    return (
+      <div className="flex justify-center py-6">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Success header */}
+      <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+        <CheckCircle2 className="h-4 w-4 shrink-0" />
+        Teams formed · {activity.formationRunCount} run
+        {activity.formationRunCount !== 1 ? "s" : ""}
+      </div>
+
+      {/* Saturation warning */}
+      {formationResult?.saturated && (
+        <SaturationWarning saturation={formationResult.saturation} />
+      )}
+
+      {/* Unfair students warning */}
+      {formationResult && formationResult.unfairStudents.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-800/40 dark:bg-yellow-950/30 dark:text-yellow-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {formationResult.unfairStudents.length} student
+            {formationResult.unfairStudents.length !== 1 ? "s have" : " has"}{" "}
+            no new teammate in this run. Consider re-running.
+          </span>
+        </div>
+      )}
+
+      {/* Re-run button (only before event starts) */}
+      {!isPast && (
+        <div className="flex items-center gap-3">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleFormTeams}
+            disabled={forming}
+          >
+            {forming ? (
+              <>
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                Re-running…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-1.5 h-4 w-4" />
+                Re-run formation
+              </>
+            )}
+          </Button>
+          {lockErrors.length > 0 && (
+            <span className="text-xs text-destructive">
+              Fix lock errors above first
+            </span>
+          )}
+        </div>
+      )}
+      {lockErrors.length > 0 && <LockErrorBanner errors={lockErrors} />}
+      {formationError && (
+        <p className="flex items-center gap-1.5 text-sm text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {formationError}
+        </p>
+      )}
+
+      {/* Team grid */}
+      {formationResult && (
+        <FormedTeamsView result={formationResult} isAdmin />
+      )}
+
+      {/* Formation log (collapsible) */}
+      <CollapsibleLogPanel logs={formationLogs} />
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ActivityDetailPage() {
@@ -183,6 +499,10 @@ export default function ActivityDetailPage() {
   const [regError, setRegError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
 
+  // Post-formation team view for students
+  const [myFormationResult, setMyFormationResult] =
+    useState<FormationResult | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     const [act, reg] = await Promise.all([
@@ -194,6 +514,10 @@ export default function ActivityDetailPage() {
     } else {
       setActivity(act);
       setIsRegistered(reg);
+      // Load teams for student if already formed
+      if (!isAdmin && act.status === "formed") {
+        fetchFormedTeams(act.id).then(setMyFormationResult);
+      }
     }
     setLoading(false);
   }, [params.id, isAdmin]);
@@ -276,13 +600,11 @@ export default function ActivityDetailPage() {
       </Button>
 
       {/* Header */}
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {activity.name}
-          </h1>
-          <StatusBadge status={activity.status} />
-        </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {activity.name}
+        </h1>
+        <StatusBadge status={activity.status} />
       </div>
 
       {/* Meta card */}
@@ -320,10 +642,7 @@ export default function ActivityDetailPage() {
             <span>
               Deadline: {formatShort(activity.deadlineAt)}{" "}
               {activity.status === "open" && !isPast && (
-                <>
-                  (
-                  <DeadlineCountdown deadlineIso={activity.deadlineAt} />)
-                </>
+                <>(<DeadlineCountdown deadlineIso={activity.deadlineAt} />)</>
               )}
             </span>
           </div>
@@ -355,13 +674,23 @@ export default function ActivityDetailPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {activity.status === "formed" ? (
-              <p className="text-sm text-muted-foreground">
-                Teams have been formed. Check{" "}
-                <a href="/teams" className="underline underline-offset-2">
-                  My Teams
-                </a>{" "}
-                to see your assignment.
-              </p>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Teams have been formed.
+                </div>
+                {myFormationResult ? (
+                  <FormedTeamsView
+                    result={myFormationResult}
+                    currentUserId={session?.user?.id}
+                    isAdmin={false}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    You were not registered for this activity.
+                  </p>
+                )}
+              </div>
             ) : (
               <>
                 {isRegistered ? (
@@ -413,8 +742,7 @@ export default function ActivityDetailPage() {
 
                 {isPast && (
                   <p className="text-xs text-muted-foreground">
-                    This activity has passed. Registration is no longer
-                    available.
+                    This activity has passed.
                   </p>
                 )}
               </>
@@ -467,59 +795,16 @@ export default function ActivityDetailPage() {
             </Card>
           )}
 
-          {/* Formation controls */}
+          {/* Formation controls + results */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Team formation</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {activity.status === "formed" ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
-                    <CheckCircle2 className="h-4 w-4 shrink-0" />
-                    Teams formed ({activity.formationRunCount} run
-                    {activity.formationRunCount !== 1 ? "s" : ""})
-                  </div>
-                  {!isPast && (
-                    <Button size="sm" variant="outline" disabled>
-                      <RefreshCw className="mr-1.5 h-4 w-4" />
-                      Re-run formation
-                    </Button>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Team editing and re-run will be available in Phase 4.
-                  </p>
-                </div>
-              ) : activity.status === "closed" ? (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    Registration is closed. Formation can be triggered manually.
-                  </p>
-                  <Button size="sm" disabled>
-                    <Play className="mr-1.5 h-4 w-4" />
-                    Form teams
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    Formation engine will be wired in Phase 3.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    Formation runs automatically at the deadline
-                    {activity.participantCap !== null &&
-                      " or when the cap is reached"}
-                    .
-                  </p>
-                  <Button size="sm" variant="outline" disabled>
-                    <Play className="mr-1.5 h-4 w-4" />
-                    Form teams now
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    Manual formation trigger available after registration closes.
-                  </p>
-                </div>
-              )}
+            <CardContent>
+              <AdminFormationSection
+                activity={activity}
+                onActivityUpdate={setActivity}
+              />
             </CardContent>
           </Card>
         </>

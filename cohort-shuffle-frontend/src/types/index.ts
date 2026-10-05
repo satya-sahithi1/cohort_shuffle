@@ -113,3 +113,49 @@ export interface TeamEntry {
   /** Other students on the same team (excludes the viewer themselves) */
   teammates: Teammate[];
 }
+
+// ─── Formation ───────────────────────────────────────────────────────────────
+
+/** One formed team inside a single activity — used for the post-formation view. */
+export interface FormedTeam {
+  teamId: string;
+  teamNumber: number;
+  /** All members of this team (admin sees everyone; student view filters to their own) */
+  members: Teammate[];
+}
+
+/**
+ * What the API returns when formation is triggered or when teams are fetched
+ * post-formation.
+ */
+export interface FormationResult {
+  activityId: string;
+  runNumber: number;
+  teams: FormedTeam[];
+  /** Lower = fewer repeats = better */
+  score: number;
+  repeatPairs: number;
+  /** 0–1 fraction of all possible pairs already met */
+  saturation: number;
+  /** true when saturation >= 0.80 — show the admin a warning */
+  saturated: boolean;
+  /** Student IDs who have no new teammate in this run (fairness violation) */
+  unfairStudents: string[];
+  /** Lock constraints that could not be satisfied */
+  unsatisfiedLocks: ActivityLock[];
+  triggeredAt: string;
+}
+
+/** One row in the formation log — a record of a single formation run. */
+export interface FormationLog {
+  id: string;
+  activityId: string;
+  runNumber: number;
+  /** null = triggered automatically at deadline */
+  triggeredBy: string | null;
+  triggeredByName: string | null;
+  score: number;
+  repeatPairs: number;
+  saturation: number;
+  createdAt: string;
+}
