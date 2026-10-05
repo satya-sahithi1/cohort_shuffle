@@ -10,7 +10,7 @@ import { useCohort } from "@/contexts/CohortContext";
 import {
   fetchActivities,
   fetchMyRegistration,
-} from "@/lib/mocks/activities";
+} from "@/lib/api/activities";
 import type { Activity } from "@/types";
 
 // ─── Empty state ──────────────────────────────────────────────────────────────

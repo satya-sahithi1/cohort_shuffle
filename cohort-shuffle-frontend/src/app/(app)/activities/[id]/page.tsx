@@ -32,7 +32,7 @@ import {
   fetchRegistrations,
   registerForActivity,
   unregisterFromActivity,
-} from "@/lib/mocks/activities";
+} from "@/lib/api/activities";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

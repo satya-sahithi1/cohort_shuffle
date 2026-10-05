@@ -10,7 +10,7 @@ import {
   fetchEligibleCohorts,
   joinCohort,
   validateJoinToken,
-} from "@/lib/mocks/cohorts";
+} from "@/lib/api/cohorts";
 import { useCohort } from "@/contexts/CohortContext";
 
 // ─── Join-link flow ────────────────────────────────────────────────────────────

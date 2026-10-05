@@ -23,7 +23,7 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import type { Activity } from "@/types";
-import { registerForActivity, unregisterFromActivity } from "@/lib/mocks/activities";
+import { registerForActivity, unregisterFromActivity } from "@/lib/api/activities";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

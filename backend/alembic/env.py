@@ -32,12 +32,10 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # ── Import everything so Alembic can see all tables ───────────────────────────
-# Add imports here as models are created.
+# All models must be imported here (even if not used directly) so that
+# Base.metadata contains every table and autogenerate detects them.
 from app.database import Base  # noqa: F401 — Base.metadata used below
-# from app.models.user import User          # noqa: F401
-# from app.models.cohort import Cohort      # noqa: F401
-# from app.models.activity import Activity  # noqa: F401
-# (uncomment as each model file is created)
+import app.models  # noqa: F401 — imports all models via models/__init__.py
 
 target_metadata = Base.metadata
 

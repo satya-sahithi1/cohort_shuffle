@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { Cohort } from "@/types";
-import { fetchMyCohorts } from "@/lib/mocks/cohorts";
+import { fetchMyCohorts } from "@/lib/api/cohorts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

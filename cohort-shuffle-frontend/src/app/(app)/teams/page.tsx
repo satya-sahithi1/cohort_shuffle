@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useCohort } from "@/contexts/CohortContext";
-import { fetchMyTeams, fetchMyTeamsByCohort } from "@/lib/mocks/teams";
+import { fetchMyTeams, fetchMyTeamsByCohort } from "@/lib/api/teams";
 import type { TeamEntry } from "@/types";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

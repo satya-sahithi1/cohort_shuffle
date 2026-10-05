@@ -23,11 +23,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCohort } from "@/contexts/CohortContext";
-import { createActivity } from "@/lib/mocks/activities";
+import { createActivity } from "@/lib/api/activities";
 import {
   fetchCohortMembers,
   type CohortMember,
-} from "@/lib/mocks/cohorts";
+} from "@/lib/api/cohorts";
 import type { ActivityLock, LockConstraintType } from "@/types";
 
 // ─── Deadline rule helpers ────────────────────────────────────────────────────
