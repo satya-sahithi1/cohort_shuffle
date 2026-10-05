@@ -1,5 +1,46 @@
 import type { Cohort } from "@/types";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface CohortMember {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "student";
+}
+
+// ─── Seed data ────────────────────────────────────────────────────────────────
+
+const _membersByCohort: Record<string, CohortMember[]> = {
+  "cohort-cs101-2026": [
+    { id: "user-alice", name: "Alice Chen", email: "alice@example.com", role: "student" },
+    { id: "user-bob", name: "Bob Martinez", email: "bob@example.com", role: "student" },
+    { id: "user-carol", name: "Carol Patel", email: "carol@example.com", role: "student" },
+    { id: "user-dave", name: "Dave Kim", email: "dave@example.com", role: "student" },
+    { id: "user-eve", name: "Eve Nguyen", email: "eve@example.com", role: "student" },
+    { id: "user-frank", name: "Frank Osei", email: "frank@example.com", role: "student" },
+    { id: "user-admin", name: "Admin User", email: "admin@example.com", role: "admin" },
+  ],
+  "cohort-design-2026": [
+    { id: "user-grace", name: "Grace Lee", email: "grace@example.com", role: "student" },
+    { id: "user-henry", name: "Henry Park", email: "henry@example.com", role: "student" },
+    { id: "user-admin", name: "Admin User", email: "admin@example.com", role: "admin" },
+  ],
+};
+
+/**
+ * Stub for GET /cohorts/:id/members
+ * Returns all members of a cohort (admin use, for the lock builder).
+ */
+export async function fetchCohortMembers(
+  cohortId: string
+): Promise<CohortMember[]> {
+  await new Promise((r) => setTimeout(r, 250));
+  return _membersByCohort[cohortId] ?? [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Stub for GET /api/cohorts/mine
  * Returns the cohorts the signed-in user is already a member of.
