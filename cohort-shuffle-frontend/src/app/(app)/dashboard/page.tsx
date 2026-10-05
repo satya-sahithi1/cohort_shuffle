@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useCohort } from "@/contexts/CohortContext";
-import { fetchActivities } from "@/lib/api/activities";
+import { fetchActivities, fetchMyRegistration } from "@/lib/api/activities";
 import { fetchMyTeams } from "@/lib/api/teams";
 import type { Activity, TeamEntry } from "@/types";
 
@@ -204,7 +204,7 @@ export default function DashboardPage() {
 
   const [activities, setActivities] = useState<Activity[]>([]);
   const [teams, setTeams] = useState<TeamEntry[]>([]);
-  const [registeredIds] = useState<Set<string>>(new Set(["act-4"])); // mirrors mock
+  const [registeredIds, setRegisteredIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   const firstName = session?.user?.name?.split(" ")[0] ?? "there";
@@ -218,14 +218,21 @@ export default function DashboardPage() {
         fetchMyTeams(),
       ]);
       // Keep only open activities that haven't passed their deadline
-      setActivities(
-        acts
-          .filter(
-            (a) => a.status === "open" && new Date(a.deadlineAt) > new Date()
-          )
-          .slice(0, 3)
-      );
+      const openActs = acts
+        .filter(
+          (a) => a.status === "open" && new Date(a.deadlineAt) > new Date()
+        )
+        .slice(0, 3);
+      setActivities(openActs);
       setTeams(myTeams.slice(0, 3));
+
+      // Fetch registration status for each open activity in parallel
+      const regResults = await Promise.all(
+        openActs.map((a) => fetchMyRegistration(a.id).catch(() => false))
+      );
+      setRegisteredIds(
+        new Set(openActs.filter((_, i) => regResults[i]).map((a) => a.id))
+      );
     } finally {
       setLoading(false);
     }

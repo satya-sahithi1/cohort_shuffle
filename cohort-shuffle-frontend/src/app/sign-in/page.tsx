@@ -1,7 +1,31 @@
 import { signIn } from "@/auth";
-import { Shuffle } from "lucide-react";
+import { Shuffle, AlertTriangle } from "lucide-react";
 
-export default function SignInPage() {
+// NextAuth error codes mapped to user-friendly messages
+const ERROR_MESSAGES: Record<string, string> = {
+  OAuthCallback: "Something went wrong with Google sign-in. Please try again.",
+  OAuthSignin: "Could not start the Google sign-in flow. Please try again.",
+  OAuthAccountNotLinked:
+    "This email is already linked to a different sign-in method.",
+  Callback: "Sign-in callback failed. Please try again.",
+  AccessDenied: "Access was denied. You may not be eligible to join this app.",
+  Verification: "The sign-in link is invalid or has expired.",
+  Default: "An error occurred during sign-in. Please try again.",
+};
+
+function errorMessage(code: string | undefined): string | null {
+  if (!code) return null;
+  return ERROR_MESSAGES[code] ?? ERROR_MESSAGES.Default;
+}
+
+interface SignInPageProps {
+  searchParams: Promise<{ error?: string; callbackUrl?: string }>;
+}
+
+export default async function SignInPage({ searchParams }: SignInPageProps) {
+  const params = await searchParams;
+  const error = errorMessage(params.error);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm space-y-8">
@@ -20,6 +44,14 @@ export default function SignInPage() {
           </div>
         </div>
 
+        {/* Error banner */}
+        {error && (
+          <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
         {/* Sign-in card */}
         <div className="rounded-xl border bg-card p-6 shadow-sm space-y-4">
           <p className="text-center text-sm text-muted-foreground">
@@ -30,7 +62,9 @@ export default function SignInPage() {
           <form
             action={async () => {
               "use server";
-              await signIn("google", { redirectTo: "/dashboard" });
+              await signIn("google", {
+                redirectTo: params.callbackUrl ?? "/dashboard",
+              });
             }}
           >
             <button

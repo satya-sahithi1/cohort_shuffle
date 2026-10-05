@@ -47,11 +47,11 @@ export default async function AdminPage() {
             Manage the student roster, invite new members, and archive
             departing students.
           </p>
-          <Button size="sm" variant="outline" className="w-full" disabled>
-            Manage members
-            <span className="ml-2 text-xs text-muted-foreground">
-              (Phase 1)
-            </span>
+          <Button asChild size="sm" variant="outline" className="w-full">
+            <Link href="/admin/members">
+              Manage members
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Link>
           </Button>
         </div>
 
@@ -64,11 +64,11 @@ export default async function AdminPage() {
           <p className="text-sm text-muted-foreground">
             Update the cohort name, domain restriction, and join link.
           </p>
-          <Button size="sm" variant="outline" className="w-full" disabled>
-            Settings
-            <span className="ml-2 text-xs text-muted-foreground">
-              (Phase 1)
-            </span>
+          <Button asChild size="sm" variant="outline" className="w-full">
+            <Link href="/admin/settings">
+              Settings
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Link>
           </Button>
         </div>
       </div>
