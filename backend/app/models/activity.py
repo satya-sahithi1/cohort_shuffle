@@ -40,7 +40,7 @@ class Activity(Base):
     # null = no cap; when set, registration closes the moment it's reached
     participant_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(
-        Enum("open", "closed", "formed", name="activity_status"),
+        Enum("open", "closed", "forming", "formed", name="activity_status"),
         default="open",
         nullable=False,
     )

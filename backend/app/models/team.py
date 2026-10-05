@@ -89,6 +89,8 @@ class FormationLog(Base):
     repeat_pairs: Mapped[int] = mapped_column(Integer, nullable=False)
     # fraction of possible pairs that have already worked together
     saturation: Mapped[float] = mapped_column(Float, nullable=False)
+    # seed used for this run — stored so the result can be reproduced exactly
+    random_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

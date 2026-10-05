@@ -16,6 +16,8 @@ Important: import ALL models before the run_migrations calls below, so
 """
 
 import asyncio
+import sys
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -23,6 +25,10 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+
+# Add the backend/ directory to sys.path so `app` is importable
+# when alembic is run from any working directory.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Alembic Config object — gives access to alembic.ini values
 config = context.config
