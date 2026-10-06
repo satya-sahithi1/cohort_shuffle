@@ -100,7 +100,7 @@ class ActivityOut(BaseModel):
     event_at: datetime
     deadline_at: datetime
     participant_cap: int | None
-    status: Literal["open", "closed", "formed"]
+    status: Literal["open", "closed", "forming", "formed"]
     registration_count: int = 0
     locks: list[ActivityLockOut] = []
     created_at: datetime
