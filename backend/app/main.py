@@ -39,6 +39,7 @@ from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.routers.activities import activity_router, cohort_router
+from app.routers.cohorts import router as cohorts_router
 from app.routers.registrations import router as registrations_router
 
 logger = logging.getLogger(__name__)
@@ -192,10 +193,12 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-# cohort_router   → /cohorts/{cohort_id}/activities   (create + list)
-# activity_router → /activities/{activity_id}          (get + patch)
+# cohorts_router  → /cohorts                          (cohort CRUD + membership)
+# cohort_router   → /cohorts/{cohort_id}/activities   (create + list activities)
+# activity_router → /activities/{activity_id}          (get + patch activity)
 # registrations   → /activities/{activity_id}/register(s)
 
+app.include_router(cohorts_router, prefix="/cohorts", tags=["cohorts"])
 app.include_router(cohort_router, prefix="/cohorts", tags=["activities"])
 app.include_router(activity_router, prefix="/activities", tags=["activities"])
 app.include_router(registrations_router, prefix="/activities", tags=["registrations"])
