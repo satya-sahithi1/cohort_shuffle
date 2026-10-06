@@ -41,6 +41,7 @@ from app.models.activity import Activity
 from app.routers.activities import activity_router, cohort_router
 from app.routers.cohorts import router as cohorts_router
 from app.routers.registrations import router as registrations_router
+from app.routers.teams import activity_teams_router, teams_router, users_router
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -54,12 +55,12 @@ async def _deadline_job(activity_id: str) -> None:
     """
     Fired by the scheduler when an activity's deadline_at arrives.
 
-    Phase 2: closes the activity so no new registrations can come in.
-    Phase 3 will replace this with formation_service.run(activity_id).
-
-    The job is idempotent — if the activity was already closed (e.g., cap
-    was reached before the deadline), this is a no-op.
+    Closes the activity (stops new registrations) then immediately runs
+    team formation. If formation fails, activity stays 'closed' so the
+    admin can fix locks and trigger manually via POST /form-teams.
     """
+    from app.services import formation_service  # local import avoids circular
+
     async with AsyncSessionLocal() as db:
         try:
             result = await db.execute(
@@ -71,7 +72,7 @@ async def _deadline_job(activity_id: str) -> None:
                 logger.warning("Deadline job: activity %s not found", activity_id)
                 return
 
-            if activity.status != "open":
+            if activity.status not in ("open", "closed"):
                 logger.info(
                     "Deadline job: activity %s already %s, skipping",
                     activity_id,
@@ -79,14 +80,26 @@ async def _deadline_job(activity_id: str) -> None:
                 )
                 return
 
-            # Close registration. Phase 3 will call form_teams() here.
-            activity.status = "closed"
-            db.add(activity)
-            await db.commit()
+            # Close registration first (no new registrations after deadline)
+            if activity.status == "open":
+                activity.status = "closed"
+                db.add(activity)
+                await db.flush()
+                logger.info(
+                    "Deadline job: activity %s closed at deadline", activity_id
+                )
+
+            # Run formation (triggered_by=None → scheduler-triggered)
+            await formation_service.run(db, uuid.UUID(activity_id), triggered_by=None)
             logger.info(
-                "Deadline job: activity %s closed at deadline", activity_id
+                "Deadline job: formation complete for activity %s", activity_id
             )
 
+        except formation_service.FormationError as e:
+            logger.warning(
+                "Deadline job: formation failed for activity %s — %s", activity_id, e
+            )
+            await db.commit()  # commit the 'closed' status so admin can retry
         except Exception:
             logger.exception(
                 "Deadline job failed for activity %s", activity_id
@@ -193,15 +206,21 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-# cohorts_router  → /cohorts                          (cohort CRUD + membership)
-# cohort_router   → /cohorts/{cohort_id}/activities   (create + list activities)
-# activity_router → /activities/{activity_id}          (get + patch activity)
-# registrations   → /activities/{activity_id}/register(s)
+# cohorts_router         → /cohorts                           (cohort CRUD + membership)
+# cohort_router          → /cohorts/{cohort_id}/activities    (create + list activities)
+# activity_router        → /activities/{activity_id}          (get + patch activity)
+# activity_teams_router  → /activities/{activity_id}/...      (form-teams, teams)
+# registrations_router   → /activities/{activity_id}/register(s)
+# users_router           → /users/me/teams                    (student team history)
+# teams_router           → /teams/{team_id}/members           (admin team edit)
 
 app.include_router(cohorts_router, prefix="/cohorts", tags=["cohorts"])
 app.include_router(cohort_router, prefix="/cohorts", tags=["activities"])
 app.include_router(activity_router, prefix="/activities", tags=["activities"])
+app.include_router(activity_teams_router, prefix="/activities", tags=["teams"])
 app.include_router(registrations_router, prefix="/activities", tags=["registrations"])
+app.include_router(users_router, prefix="/users", tags=["users"])
+app.include_router(teams_router, prefix="/teams", tags=["teams"])
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

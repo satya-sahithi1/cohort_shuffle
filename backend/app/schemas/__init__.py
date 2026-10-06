@@ -14,3 +14,10 @@ from app.schemas.cohort import (  # noqa: F401
     MemberPatch,
     JoinLinkOut,
 )
+from app.schemas.team import (  # noqa: F401
+    TeamMemberOut,
+    TeamOut,
+    TeamHistoryOut,
+    FormationLogOut,
+    TeamMemberPatch,
+)
