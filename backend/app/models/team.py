@@ -14,7 +14,7 @@ how many repeat pairs there were, and the saturation fraction.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -90,7 +90,7 @@ class FormationLog(Base):
     # fraction of possible pairs that have already worked together
     saturation: Mapped[float] = mapped_column(Float, nullable=False)
     # seed used for this run — stored so the result can be reproduced exactly
-    random_seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    random_seed: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

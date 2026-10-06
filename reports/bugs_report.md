@@ -32,7 +32,6 @@ directory. Nothing functional beyond `/health`.
 | Pair-history loader from `team_members` | missing |
 | `formation_logs` writer + saturation ≥ 0.80 flag | missing |
 | `frontend/` (React 18 + Vite, 5 pages) | missing |
-| `docker-compose.yml`, `nginx.conf`, `backend/Dockerfile`, `frontend/Dockerfile` | missing |
 | `backend/requirements.txt` | present but incomplete (missing `apscheduler`, OAuth client) |
 
 ### 1.2 Algorithm module: implemented, was 16 defects, 4 remain

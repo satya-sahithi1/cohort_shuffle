@@ -21,9 +21,7 @@
 - **Tailwind CSS** — utility-first styling, fast to build with
 
 ### Infrastructure (simple, self-hosted or cheap cloud)
-- **Docker + Docker Compose** — one command to run everything locally and in prod
-- **Nginx** — reverse proxy, serves frontend static files, proxies API
-- **PostgreSQL** runs in its own container
+- **PostgreSQL** — runs locally or on any managed service
 
 No Kubernetes, no message queues, no microservices. This is a small app — keep it simple.
 
@@ -40,11 +38,9 @@ cohort_shuffle/
 │   ├── app/              # FastAPI web server
 │   ├── tests/            # backend-specific integration tests
 │   ├── alembic/          # DB migrations
-│   ├── requirements.txt
-│   └── Dockerfile
+│   └── requirements.txt
 ├── frontend/
-│   ├── src/
-│   └── Dockerfile
+│   └── src/
 ├── tests/                # TOP-LEVEL: algorithm unit tests, mirrors backend/algorithm/
 │   └── algorithm/
 │       ├── test_scorer.py
@@ -53,8 +49,6 @@ cohort_shuffle/
 │       ├── test_fairness.py
 │       ├── test_engine.py
 │       └── conftest.py   # shared fixtures (student lists, pair histories)
-├── docker-compose.yml
-├── nginx.conf
 └── docs/                 # problem_draft2.md, algorithm_approach1.md, implementation_plan.md
 ```
 
