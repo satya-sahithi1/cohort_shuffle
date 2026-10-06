@@ -39,6 +39,7 @@ from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.routers.activities import activity_router, cohort_router
+from app.routers.auth import router as auth_router
 from app.routers.cohorts import router as cohorts_router
 from app.routers.registrations import router as registrations_router
 from app.routers.teams import activity_teams_router, teams_router, users_router
@@ -206,6 +207,7 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
+# auth_router            → /auth                              (Google OAuth + /me + /logout)
 # cohorts_router         → /cohorts                           (cohort CRUD + membership)
 # cohort_router          → /cohorts/{cohort_id}/activities    (create + list activities)
 # activity_router        → /activities/{activity_id}          (get + patch activity)
@@ -214,6 +216,7 @@ app.add_middleware(
 # users_router           → /users/me/teams                    (student team history)
 # teams_router           → /teams/{team_id}/members           (admin team edit)
 
+app.include_router(auth_router)
 app.include_router(cohorts_router, prefix="/cohorts", tags=["cohorts"])
 app.include_router(cohort_router, prefix="/cohorts", tags=["activities"])
 app.include_router(activity_router, prefix="/activities", tags=["activities"])

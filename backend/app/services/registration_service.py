@@ -109,6 +109,11 @@ async def unregister(
       - If a cap was set and the activity was just closed by reaching the cap,
         unregistering re-opens it (the spot is freed).
     """
+    if activity.status in ("forming", "formed"):
+        raise RegistrationError(
+            "Teams have already been formed; you cannot unregister."
+        )
+
     if datetime.now(timezone.utc) > activity.deadline_at:
         raise RegistrationError("The deadline has passed; you cannot unregister.")
 

@@ -5,12 +5,21 @@ FIX B2: _conflict_students and _new_pairs_in now use has_met() exclusively.
 """
 
 from __future__ import annotations
+import time
 from itertools import combinations
 
 from algorithm.scorer import PairHistory, team_score, pair_score, pair_key, is_better, has_met
 
 
-def optimise(teams: list[list[str]], history: PairHistory) -> list[list[str]]:
+def optimise(
+    teams: list[list[str]],
+    history: PairHistory,
+    deadline: float | None = None,
+) -> list[list[str]]:
+    """
+    Improve teams by pairwise student swaps.
+    deadline: monotonic time after which we stop mid-pass (B9 fix).
+    """
     if len(teams) < 2:
         return teams
 
@@ -20,12 +29,16 @@ def optimise(teams: list[list[str]], history: PairHistory) -> list[list[str]]:
 
     improved = True
     while improved:
+        if deadline is not None and time.monotonic() > deadline:
+            break
         improved = False
         conflict = _conflict_students(teams, history)
         if not conflict:
             break
 
         for i, j in combinations(range(len(teams)), 2):
+            if deadline is not None and time.monotonic() > deadline:
+                break
             for si in range(len(teams[i])):
                 for sj in range(len(teams[j])):
                     s1 = teams[i][si]

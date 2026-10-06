@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     # Token expiry in minutes.
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
 
+    # ── Google OAuth ──────────────────────────────────────────────────────
+    # From Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client IDs
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Must exactly match an Authorised Redirect URI registered in GCP.
+    google_redirect_uri: str = "http://localhost:8000/auth/google/callback"
+    # Where to redirect the browser after a successful login.
+    # The JWT is appended as ?token=<jwt> so the frontend can store it.
+    frontend_url: str = "http://localhost:3000"
+
     # ── App ───────────────────────────────────────────────────────────────
     app_name: str = "Cohort Shuffle"
     debug: bool = True
