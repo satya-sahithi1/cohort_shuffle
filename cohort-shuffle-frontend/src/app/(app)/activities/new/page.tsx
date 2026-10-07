@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useCohort } from "@/contexts/CohortContext";
+import { useToast } from "@/contexts/ToastContext";
 import { createActivity } from "@/lib/api/activities";
 import {
   fetchCohortMembers,
@@ -86,7 +87,7 @@ function LockRow({ lock, members, onChange, onRemove }: LockRowProps) {
   const students = members.filter((m) => m.role === "student");
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border p-3">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border p-3">
       {/* Student A */}
       <Select
         value={lock.userAId}
@@ -96,7 +97,7 @@ function LockRow({ lock, members, onChange, onRemove }: LockRowProps) {
             onChange({ ...lock, userAId: m.id, userAName: m.name });
         }}
       >
-        <SelectTrigger className="h-8 flex-1 text-sm">
+        <SelectTrigger className="h-8 flex-1 min-w-[120px] text-sm">
           <SelectValue placeholder="Student A" />
         </SelectTrigger>
         <SelectContent>
@@ -133,7 +134,7 @@ function LockRow({ lock, members, onChange, onRemove }: LockRowProps) {
             onChange({ ...lock, userBId: m.id, userBName: m.name });
         }}
       >
-        <SelectTrigger className="h-8 flex-1 text-sm">
+        <SelectTrigger className="h-8 flex-1 min-w-[120px] text-sm">
           <SelectValue placeholder="Student B" />
         </SelectTrigger>
         <SelectContent>
@@ -219,6 +220,7 @@ export default function NewActivityPage() {
   const router = useRouter();
   const { data: session } = useSession();
   const { activeCohort } = useCohort();
+  const { toast } = useToast();
   const isAdmin = session?.user?.role === "admin";
 
   // Redirect non-admins away
@@ -324,9 +326,12 @@ export default function NewActivityPage() {
         participantCap: participantCap ? parseInt(participantCap, 10) : null,
         locks,
       });
+      toast({ message: `Activity "${name.trim()}" created!`, type: "success" });
       router.push(`/activities/${activity.id}`);
     } catch {
-      setSubmitError("Failed to create activity. Please try again.");
+      const msg = "Failed to create activity. Please try again.";
+      setSubmitError(msg);
+      toast({ message: msg, type: "error" });
       setSubmitting(false);
     }
   };

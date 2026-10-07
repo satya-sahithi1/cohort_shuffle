@@ -31,7 +31,7 @@ interface ActivityBackend {
   event_at: string;
   deadline_at: string;
   participant_cap: number | null;
-  status: "open" | "closed" | "formed";
+  status: "open" | "closed" | "forming" | "formed";
   registration_count: number;
   locks: Array<{
     id: string;

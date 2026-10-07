@@ -12,12 +12,14 @@ import {
   validateJoinToken,
 } from "@/lib/api/cohorts";
 import { useCohort } from "@/contexts/CohortContext";
+import { useToast } from "@/contexts/ToastContext";
 
 // ─── Join-link flow ────────────────────────────────────────────────────────────
 
 function JoinByToken({ token }: { token: string }) {
   const router = useRouter();
   const { refreshCohorts, setActiveCohort } = useCohort();
+  const { toast } = useToast();
   const [cohort, setCohort] = useState<Cohort | null>(null);
   const [status, setStatus] = useState<
     "loading" | "ready" | "joining" | "done" | "invalid"
@@ -37,11 +39,20 @@ function JoinByToken({ token }: { token: string }) {
   const handleJoin = async () => {
     if (!cohort) return;
     setStatus("joining");
-    await joinCohort(cohort.id);
-    await refreshCohorts();
-    setActiveCohort(cohort);
-    setStatus("done");
-    setTimeout(() => router.push("/dashboard"), 1200);
+    try {
+      await joinCohort(cohort.id);
+      await refreshCohorts();
+      setActiveCohort(cohort);
+      toast({ message: `Joined ${cohort.name}!`, type: "success" });
+      setStatus("done");
+      setTimeout(() => router.push("/dashboard"), 1200);
+    } catch (e: unknown) {
+      toast({
+        message: e instanceof Error ? e.message : "Failed to join cohort.",
+        type: "error",
+      });
+      setStatus("ready");
+    }
   };
 
   if (status === "loading") {
@@ -102,6 +113,7 @@ function JoinByToken({ token }: { token: string }) {
 function EligibleCohorts() {
   const router = useRouter();
   const { refreshCohorts, setActiveCohort } = useCohort();
+  const { toast } = useToast();
   const [cohorts, setCohorts] = useState<Cohort[]>([]);
   const [joiningId, setJoiningId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -115,10 +127,19 @@ function EligibleCohorts() {
 
   const handleJoin = async (cohort: Cohort) => {
     setJoiningId(cohort.id);
-    await joinCohort(cohort.id);
-    await refreshCohorts();
-    setActiveCohort(cohort);
-    router.push("/dashboard");
+    try {
+      await joinCohort(cohort.id);
+      await refreshCohorts();
+      setActiveCohort(cohort);
+      toast({ message: `Joined ${cohort.name}!`, type: "success" });
+      router.push("/dashboard");
+    } catch (e: unknown) {
+      toast({
+        message: e instanceof Error ? e.message : "Failed to join cohort.",
+        type: "error",
+      });
+      setJoiningId(null);
+    }
   };
 
   if (isLoading) {

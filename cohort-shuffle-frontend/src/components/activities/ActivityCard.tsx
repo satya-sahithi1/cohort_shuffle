@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/card";
 import type { Activity } from "@/types";
 import { registerForActivity, unregisterFromActivity } from "@/lib/api/activities";
+import { useToast } from "@/contexts/ToastContext";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,14 @@ function StatusBadge({ activity }: { activity: Activity }) {
       <Badge variant="secondary" className="gap-1">
         <CheckCircle2 className="h-3 w-3" />
         Teams formed
+      </Badge>
+    );
+  }
+  if (activity.status === "forming") {
+    return (
+      <Badge variant="outline" className="gap-1 border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Forming…
       </Badge>
     );
   }
@@ -112,6 +121,7 @@ export function ActivityCard({
   isAdmin = false,
   onRegistrationChange,
 }: ActivityCardProps) {
+  const { toast } = useToast();
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,8 +140,11 @@ export function ActivityCard({
     try {
       await registerForActivity(activity.id);
       onRegistrationChange?.(activity.id, true);
+      toast({ message: `Registered for ${activity.name}!`, type: "success" });
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Registration failed");
+      const msg = e instanceof Error ? e.message : "Registration failed";
+      setError(msg);
+      toast({ message: msg, type: "error" });
     } finally {
       setRegistering(false);
     }
@@ -143,8 +156,11 @@ export function ActivityCard({
     try {
       await unregisterFromActivity(activity.id);
       onRegistrationChange?.(activity.id, false);
+      toast({ message: `Unregistered from ${activity.name}.`, type: "info" });
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Unregistration failed");
+      const msg = e instanceof Error ? e.message : "Unregistration failed";
+      setError(msg);
+      toast({ message: msg, type: "error" });
     } finally {
       setRegistering(false);
     }

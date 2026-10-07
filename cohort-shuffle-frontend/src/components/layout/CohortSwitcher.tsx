@@ -27,7 +27,7 @@ export function CohortSwitcher() {
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="Switch cohort"
-        className="flex w-52 items-center justify-between gap-2 rounded-md border bg-background px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex max-w-[140px] sm:max-w-[208px] items-center justify-between gap-2 rounded-md border bg-background px-3 py-1.5 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="truncate">{activeCohort.name}</span>
         <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />

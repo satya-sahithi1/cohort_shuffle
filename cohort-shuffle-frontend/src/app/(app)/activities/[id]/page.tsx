@@ -1,7 +1,5 @@
 "use client";
 
-"use client";
-
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -50,7 +48,7 @@ import {
   triggerFormation,
   validateLocks,
   moveStudentBetweenTeams,
-} from "@/lib/mocks/formation";
+} from "@/lib/api/formation";
 import { FormedTeamsView } from "@/components/activities/FormedTeamsView";
 import { FormationLogPanel } from "@/components/activities/FormationLogPanel";
 import { TeamEditView } from "@/components/activities/TeamEditView";
@@ -112,6 +110,12 @@ function StatusBadge({ status }: { status: Activity["status"] }) {
     return (
       <Badge variant="secondary" className="gap-1">
         <CheckCircle2 className="h-3 w-3" /> Teams formed
+      </Badge>
+    );
+  if (status === "forming")
+    return (
+      <Badge variant="outline" className="gap-1 border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400">
+        <Loader2 className="h-3 w-3 animate-spin" /> Forming…
       </Badge>
     );
   if (status === "closed")
@@ -365,6 +369,25 @@ function AdminFormationSection({
         <p className="text-xs text-muted-foreground">
           Manual trigger is available after registration closes.
         </p>
+      </div>
+    );
+  }
+
+  // ── Status: forming — formation in progress ──
+  if (activity.status === "forming") {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-400">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          Team formation is in progress…
+        </div>
+        <p className="text-xs text-muted-foreground">
+          This usually completes in under a second. Refresh the page to see results.
+        </p>
+        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+          <RefreshCw className="mr-1.5 h-4 w-4" />
+          Refresh
+        </Button>
       </div>
     );
   }

@@ -24,7 +24,7 @@ export interface Cohort {
 
 // ─── Activity ────────────────────────────────────────────────────────────────
 
-export type ActivityStatus = "open" | "closed" | "formed";
+export type ActivityStatus = "open" | "closed" | "forming" | "formed";
 export type LockConstraintType = "together" | "apart";
 
 export interface ActivityLock {
